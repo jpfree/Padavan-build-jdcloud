@@ -76,6 +76,9 @@ jobs:
         sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_XUPNPD/d' .config #iptv
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_VLMCSD/d' .config
+
+        
 
         
         ######################################################################
@@ -135,6 +138,9 @@ jobs:
         echo "CONFIG_FIRMWARE_INCLUDE_FTPD=n" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_SMBD=n" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_XUPNPD=n" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_VLMCSD=n" >> .config
+
+        
 
         
         
