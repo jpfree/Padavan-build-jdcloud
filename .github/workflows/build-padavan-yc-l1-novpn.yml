@@ -124,6 +124,11 @@ jobs:
         #echo "自定义项=y" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_LANG_CN=n" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_SOCAT=y" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_OPENVPN=n" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_LPRD=n" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_U2EC=n" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_XUPNPD=n" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_FTPD=n" >> .config
         #########################################################################################
         sudo ./clear_tree
         sudo ./build_firmware_modify $TNAME 0
