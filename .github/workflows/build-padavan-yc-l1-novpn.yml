@@ -70,15 +70,15 @@ jobs:
         sed -i '/CONFIG_FIRMWARE_INCLUDE_ALIDDNS/d' .config #删除配置项阿里DDNS
         sed -i '/CONFIG_FIRMWARE_INCLUDE_SMARTDNS/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_SRELAY/d' .config
-        sed -i 's/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=n/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/g' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_OPENVPN/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_HTOP/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_XUPNPD/d' .config #iptv
         sed -i '/CONFIG_FIRMWARE_INCLUDE_VLMCSD/d' .config
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_TTYD/d' .config
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA/d' .config
 
-        
 
         
         ######################################################################
@@ -139,8 +139,11 @@ jobs:
         echo "CONFIG_FIRMWARE_INCLUDE_SMBD=n" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_XUPNPD=n" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_VLMCSD=n" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_TTYD=n" >> .config
+        echo "CONFIG_FIRMWARE_INCLUDE_ARIA=n" >> .config
 
         
+
 
         
         
