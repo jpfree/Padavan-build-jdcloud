@@ -2,6 +2,7 @@
 name: Build Padavan YK-L1
 
 on: 
+  workflow_dispatch:
   release:
     types: [published]
   push:
@@ -14,7 +15,7 @@ on:
   watch:
     types: [started]
     
-  workflow_dispatch:
+  
 
 jobs:
   build:
