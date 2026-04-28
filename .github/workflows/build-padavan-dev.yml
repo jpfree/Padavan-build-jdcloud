@@ -2,6 +2,7 @@
 name: Build Padavan YK-L1 dev
 
 on: 
+  workflow_dispatch:
   release:
     types: [published]
   push:
@@ -13,7 +14,6 @@ on:
 #    - cron: 0 8 * * 5
   watch:
     types: [started]
-  workflow_dispatch:
     
   
 
