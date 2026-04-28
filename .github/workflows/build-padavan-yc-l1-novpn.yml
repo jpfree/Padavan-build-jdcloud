@@ -17,7 +17,7 @@ jobs:
 
     steps:
       # ------------------------------------------------------------
-      # 1️⃣ Checkout & install build dependencies
+      # 1️⃣ Checkout & install dependencies
       # ------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@master
@@ -49,7 +49,7 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 3️⃣ Prepare a **VPN‑free** .config (the crucial part)
+      # 3️⃣ Prepare a VPN‑free .config (critical part)
       # ------------------------------------------------------------
       - name: Prepare firmware config (disable every VPN feature)
         env:
@@ -57,7 +57,7 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # ── a) 把模板里所有 VPN 选项直接改成 n（在复制前完成）
+          # a) 把模板里所有 VPN 选项直接改成 n（在复制前完成）
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' configs/templates/${TNAME}.config
@@ -65,10 +65,10 @@ jobs:
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' configs/templates/${TNAME}.config
 
-          # ── b) 复制已经改成 n 的模板
+          # b) 复制已经改成 n 的模板
           cp -f configs/templates/${TNAME}.config .config
 
-          # ── c) 删除原 workflow 已经去掉的其它插件选项（保持不变）
+          # c) 删除原 workflow 已经去掉的其它插件选项（保持不变）
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -84,7 +84,7 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # ── d) **关键**：修改内核层的 VPN（PPP / PPTP / L2TP / TUN）
+          # d) **关键**：修改内核层的 VPN（PPP / PPTP / L2TP / TUN）
           KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
           if [ -f "$KERNEL_CFG" ]; then
             # 删除可能已存在的行（防止冲突）
@@ -100,7 +100,7 @@ jobs:
             echo "CONFIG_L2TP=n"        >> "$KERNEL_CFG"
             echo "CONFIG_TUN=n"        >> "$KERNEL_CFG"
 
-            # 让 Padavan 正式使用我们编辑后的文件（复制为默认名字）
+            # 让 Padavan 正式使用我们编辑后的文件（复制成默认名字）
             cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
           fi
 
@@ -123,14 +123,14 @@ jobs:
             echo "✅ kernel_config 已全部是 n"
 
       # ------------------------------------------------------------
-      # 5️⃣ Apply kernel changes (olddefconfig) – guarantees dependent options are cleared
+      # 5️⃣ Apply kernel config changes (silentoldconfig) – guarantees dependent options are cleared
       # ------------------------------------------------------------
-      - name: Apply kernel config changes (olddefconfig)
+      - name: Apply kernel config changes (silentoldconfig)
         run: |
-          cd /opt/rt-n56u/trunk/linux-3.4.x
-          # 这一步会读取我们刚才写入的 kernel_config 并把所有未定义的选项
-          # 重新写为默认值（我们已经把关键的两个写成 n）
-          make olddefconfig
+          cd /opt/rt-n56u/trunk
+          # 这一步会读取我们刚写入的 kernel_config 并重新生成 .config
+          make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
+               -C linux-3.4.x scripts/kconfig/conf --silentoldconfig Kconfig
 
       # ------------------------------------------------------------
       # 6️⃣ Clean any previous build artefacts (clear_tree)
@@ -153,7 +153,7 @@ jobs:
           fakeroot ./build_firmware_modify $TNAME 0   # 0 = release (no debug)
 
       # ------------------------------------------------------------
-      # 8️⃣ (Optional) Remove any leftover VPN binaries / kernel modules
+      # 8️⃣ (Optional) Remove any VPN binaries / kernel modules
       # ------------------------------------------------------------
       - name: Remove any VPN binaries or kernel modules from the image (just in case)
         run: |
@@ -162,10 +162,8 @@ jobs:
             \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" -o -iname "*ppp*" -o -iname "*tun*" \) \
             -exec rm -f {} +
 
-          # 删除可能已经编译进镜像的内核模块文件 (*.ko)
-          find /opt/rt-n56u/trunk/images -name "*.ko" \
-            -type f \
-            -exec rm -f {} +
+          # 删除已经编译进镜像的内核模块文件 (*.ko)
+          find /opt/rt-n56u/trunk/images -name "*.ko" -type f -exec rm -f {} +
 
       # ------------------------------------------------------------
       # 9️⃣ Collect the generated *.trx file (absolute path)
