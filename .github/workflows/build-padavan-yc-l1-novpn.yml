@@ -3,7 +3,7 @@ name: Build Padavan YK‑L1 (no VPN)
 on:
   push:
     tags:
-      - 'v*'               # 例如 v20240430
+      - 'v*'                 # 如 v20240430
   release:
     types: [published]
   workflow_dispatch:
@@ -57,10 +57,10 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # ① 复制官方板子模板
+          # ── a) 复制官方模板到 .config
           cp -f configs/templates/${TNAME}.config .config
 
-          # ② 强制把所有用户空间 VPN 选项写成 “n”
+          # ── b) 强制把所有用户空间 VPN 项写成 “n”
           echo "CONFIG_FIRMWARE_INCLUDE_OPENVPN=n"      >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_RPL2TP=n"      >> .config
@@ -68,7 +68,7 @@ jobs:
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n"    >> .config
 
-          # ③ 删除原 workflow 中手动去掉的其它选项（保持不变）
+          # ── c) 删除原 workflow 已经去掉的其它插件选项（保持不变）
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -84,10 +84,8 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # ------------------------------------------------------------
-          # ④ **关键**：删除/禁用内核层的 VPN 模块（PPP / PPTP / L2TP）
-          #    正确路径是 kernel-3.4.x.config
-          # ------------------------------------------------------------
+          # ── d) **关键**：删除/禁用内核层的 VPN（PPP / PPTP / L2TP）
+          #      正确的文件名是 kernel-3.4.x.config
           KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
           if [ -f "$KERNEL_CFG" ]; then
             # 删除整行
@@ -100,8 +98,8 @@ jobs:
             sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'               "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_L2TP=.*/CONFIG_L2TP=n/'               "$KERNEL_CFG" || true
 
-            # 为了让 Padavan 的 Makefile 必然使用我们刚修改的文件，
-            # 把它再拷贝成默认名字 “kernel_config”。（可选，安全起见保留）
+            # 为了让 Padavan 必然使用我们改好的文件，
+            # 复制成默认名字 “kernel_config”（可省略，只是保险）
             cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
           fi
 
@@ -115,7 +113,7 @@ jobs:
           ./clear_tree
 
       # ------------------------------------------------------------
-      # 6️⃣ Build firmware (must be run under fakeroot)
+      # 6️⃣ Build firmware (must be executed under fakeroot)
       # ------------------------------------------------------------
       - name: Build firmware (no VPN)
         env:
@@ -131,7 +129,7 @@ jobs:
       - name: Collect built firmware
         run: |
           mkdir -p /opt/images
-          # 这里使用绝对路径，确保能够找到刚生成的固件
+          # 使用绝对路径，确保可以找到编译好的固件
           cp -f /opt/rt-n56u/trunk/images/*.trx /opt/images/
 
       # ------------------------------------------------------------
