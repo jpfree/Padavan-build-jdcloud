@@ -3,7 +3,7 @@ name: Build Padavan YK‑L1 (no VPN)
 on:
   push:
     tags:
-      - 'v*'               # e.g. v20240430
+      - 'v*'               # 例如 v20240430
   release:
     types: [published]
   workflow_dispatch:
@@ -49,7 +49,7 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 3️⃣ Prepare a VPN‑free .config
+      # 3️⃣ Prepare a VPN‑free .config  (THIS PART IS THE IMPORTANT ONE)
       # ------------------------------------------------------------
       - name: Prepare firmware config (disable every VPN feature)
         env:
@@ -57,10 +57,10 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # ---- ① copy the board‑specific template ---------------------------------
+          # ① 复制官方板子模板
           cp -f configs/templates/${TNAME}.config .config
 
-          # ---- ② force every VPN‑related option to "n" ---------------------------
+          # ② 强制把所有用户空间 VPN 选项写成 “n”
           echo "CONFIG_FIRMWARE_INCLUDE_OPENVPN=n"      >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_RPL2TP=n"      >> .config
@@ -68,7 +68,7 @@ jobs:
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n"    >> .config
 
-          # ---- ③ delete the other options the original workflow stripped -----
+          # ③ 删除原 workflow 中手动去掉的其它选项（保持不变）
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -84,27 +84,29 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # ---- ④ (可选) 删除内核层的 VPN 模块（PPP/PPTP/L2TP） ------------
-          # 正确的内核配置文件路径是 kernel-3.4.x.config
+          # ------------------------------------------------------------
+          # ④ **关键**：删除/禁用内核层的 VPN 模块（PPP / PPTP / L2TP）
+          #    正确路径是 kernel-3.4.x.config
+          # ------------------------------------------------------------
           KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
           if [ -f "$KERNEL_CFG" ]; then
-            # 直接在原文件上做修改
+            # 删除整行
             sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
             sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
             sed -i '/CONFIG_L2TP/d'  "$KERNEL_CFG"
-            # 把可能的 “=y” 强制改成 “=n”
+            # 把可能出现的 “=y” 强制改成 “=n”
             sed -i 's/^CONFIG_PPP=.*/CONFIG_PPP=n/'                 "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'       "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'               "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_L2TP=.*/CONFIG_L2TP=n/'               "$KERNEL_CFG" || true
 
-            # 为了让 Padavan 的 makefile 必然使用我们刚刚改好的文件，
-            # 把它再拷贝成默认名字 “kernel_config”。（可省略，只是保险措施）
+            # 为了让 Padavan 的 Makefile 必然使用我们刚修改的文件，
+            # 把它再拷贝成默认名字 “kernel_config”。（可选，安全起见保留）
             cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
           fi
 
       # ------------------------------------------------------------
-      # 4️⃣ Clean previous build artefacts (clear_tree)
+      # 5️⃣ Clean previous build artefacts (clear_tree)
       # ------------------------------------------------------------
       - name: Clean previous build
         run: |
@@ -113,7 +115,7 @@ jobs:
           ./clear_tree
 
       # ------------------------------------------------------------
-      # 5️⃣ Build firmware (must run under fakeroot)
+      # 6️⃣ Build firmware (must be run under fakeroot)
       # ------------------------------------------------------------
       - name: Build firmware (no VPN)
         env:
@@ -124,15 +126,16 @@ jobs:
           fakeroot ./build_firmware_modify $TNAME 0   # 0 = release (no debug)
 
       # ------------------------------------------------------------
-      # 6️⃣ Collect the generated *.trx file (fixed absolute path)
+      # 7️⃣ Collect the generated *.trx file (fixed absolute path)
       # ------------------------------------------------------------
       - name: Collect built firmware
         run: |
           mkdir -p /opt/images
+          # 这里使用绝对路径，确保能够找到刚生成的固件
           cp -f /opt/rt-n56u/trunk/images/*.trx /opt/images/
 
       # ------------------------------------------------------------
-      # 7️⃣ Upload as CI artefact
+      # 8️⃣ Upload as CI artefact
       # ------------------------------------------------------------
       - name: Upload firmware artefact
         uses: actions/upload-artifact@v4
@@ -142,7 +145,7 @@ jobs:
           if-no-files-found: error
 
       # ------------------------------------------------------------
-      # 8️⃣ (Optional) Verify that no VPN flag slipped back in
+      # 9️⃣ (Optional) Verify that no VPN flag slipped back in
       # ------------------------------------------------------------
       - name: Verify VPN really disabled
         run: |
