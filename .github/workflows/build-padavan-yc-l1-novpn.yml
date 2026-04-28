@@ -1,4 +1,4 @@
-name: Build Padavan YK‑L1 (no VPN)
+name: Build Padavan YK-L1 (no VPN)
 
 # 触发方式：Tag、Release、手动或 watch 事件
 on:
@@ -14,22 +14,22 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 只在仓库所有者自己触发时运行，防止他人滥用
+    # 只在仓库拥有者本人触发时运行，防止他人滥用
     if: github.event.repository.owner.id == github.event.sender.id
 
     env:
       TNAME: YK-L1               # 目标板子
-      KERNEL: 3.4                # 使用的内核版本（本工作流只针对 3.4）
+      KERNEL: 3.4                # 使用的内核版本（本工作流仅针对 3.4）
 
     steps:
       # -----------------------------------------------------------------
-      # 1️⃣ Checkout 本工作流所在的仓库（含 workflow 本身）
+      # 1️⃣ Checkout 本仓库（包括 workflow 本身）
       # -----------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
       # -----------------------------------------------------------------
-      # 2️⃣ 安装编译所需的全部软件包
+      # 2️⃣ 安装编译所需的全部依赖
       # -----------------------------------------------------------------
       - name: Install build dependencies
         env:
@@ -44,11 +44,11 @@ jobs:
             libncurses5-dev libltdl-dev wget
 
       # -----------------------------------------------------------------
-      # 3️⃣ 克隆 Padavan 源码（rt‑n56u）并下载交叉编译工具链
+      # 3️⃣ 克隆 Padavan 源码（rt-n56u）并下载交叉编译工具链
       # -----------------------------------------------------------------
-      - name: Clone Padavan source (rt‑n56u)
+      - name: Clone Padavan source (rt-n56u)
         run: |
-          # 克隆主仓库（depth=1 足够 CI 使用）
+          # 克隆主仓库（depth=1 已足够 CI 使用）
           git clone --depth=1 https://github.com/jpfree/rt-n56u.git rt-n56u
           # 下载 MIPS‑el 交叉编译工具链
           cd rt-n56u/toolchain-mipsel
@@ -109,7 +109,7 @@ jobs:
           cd rt-n56u/trunk
           echo "=== 检查 .config 中是否仍有 =y 的 VPN 项目 ==="
           if grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)=y' .config; then
-            echo "❌ .config 里还有 VPN 选项被设为 y！请检查上一步的 sed。"
+            echo "❌ .config 里还有 VPN 项目被设为 y！"
             exit 1
           else
             echo "✅ .config 已全部是 n"
@@ -117,28 +117,42 @@ jobs:
 
           echo "=== 检查 kernel_config 中是否仍有 =y 的内核 VPN 项目 ==="
           if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)=y' "configs/boards/${TNAME}/kernel_config"; then
-            echo "❌ kernel_config 里还有 VPN 选项被设为 y！"
+            echo "❌ kernel_config 里还有 VPN 项目被设为 y！"
             exit 1
           else
             echo "✅ kernel_config 已全部是 n"
           fi
 
       # -----------------------------------------------------------------
-      # 6️⃣ 让内核配置生效：使用 Kconfig‑conf 的 silentoldconfig
+      # 6️⃣ 让内核配置生效：先编译 Kconfig‑conf，然后使用 --silentoldconfig
       # -----------------------------------------------------------------
       - name: Apply kernel config changes (silentoldconfig)
         run: |
           cd rt-n56u/trunk
 
-          # 把我们编辑好的 kernel_config 复制为 .config（Padavan 读取此文件）
+          # -------------------------------------------------------------
+          # 把我们已经写好 n 的 kernel_config 复制为 Linux 目录下的 .config
+          # （Padavan 在 make linux 前会直接读取这个文件）
+          # -------------------------------------------------------------
           cp "configs/boards/${TNAME}/kernel_config" "linux-3.4.x/.config"
 
-          # 运行 silentoldconfig，使 =n 真正写入 .config（不会弹交互）
+          # -------------------------------------------------------------
+          # 1️⃣ 编译 Kconfig‑conf（它本身是一个 C 程序，需要先 make）
+          # -------------------------------------------------------------
+          echo "Compiling Kconfig‑conf ..."
+          make -C linux-3.4.x scripts/kconfig/conf
+
+          # -------------------------------------------------------------
+          # 2️⃣ 运行 silentoldconfig，让我们写入的 =n 真正写进 .config
+          # -------------------------------------------------------------
           ARCH=mips \
           CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
           ./linux-3.4.x/scripts/kconfig/conf --silentoldconfig linux-3.4.x/.config
 
-          # 最后再次确认内核层的 VPN 选项已经是 n
+          # -------------------------------------------------------------
+          # 3️⃣ 最后再次确认内核层的 VPN 选项已经全部是 n
+          # -------------------------------------------------------------
+          echo "Verifying that VPN options are disabled in the final .config"
           if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)=y' linux-3.4.x/.config; then
             echo "❌ silentoldconfig 后仍有 VPN 选项为 y！"
             exit 1
@@ -164,10 +178,10 @@ jobs:
         run: |
           cd rt-n56u/trunk
           chmod +x build_firmware_modify
-          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release  (不带 debug)
+          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release（不带 debug）
 
       # -----------------------------------------------------------------
-      # 9️⃣ （可选）再次删除可能残留的 VPN 可执行文件和内核模块
+      # 9️⃣ （防御性）再次删除可能残留的 VPN 可执行文件和内核模块
       # -----------------------------------------------------------------
       - name: Remove any VPN binaries / kernel modules from the image (defensive)
         run: |
@@ -176,7 +190,7 @@ jobs:
             \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" \
                -o -iname "*ppp*" -o -iname "*tun*" \) -exec rm -f {} +
 
-          # 可能已经被编进固件的内核模块 (*.ko)
+          # 已经编进固件的内核模块 (*.ko)
           find rt-n56u/trunk/images -name "*.ko" -type f -exec rm -f {} +
 
       # -----------------------------------------------------------------
@@ -193,12 +207,12 @@ jobs:
       - name: Upload firmware artefact
         uses: actions/upload-artifact@v4
         with:
-          name: YK-L1-no‑vpn
+          name: YK-L1-no-vpn
           path: /opt/images/*.trx
           if-no-files-found: error
 
       # -----------------------------------------------------------------
-      # 12️⃣ 生成后再次检查 .trx 是否完全没有 VPN 关键字（最终安全保险）
+      # 12️⃣ 生成后再次检查 .trx 是否彻底没有 VPN 关键字（最终安全保险）
       # -----------------------------------------------------------------
       - name: Post‑build VPN verification (strings)
         run: |
