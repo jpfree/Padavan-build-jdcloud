@@ -3,7 +3,7 @@ name: Build Padavan YK‑L1 (no VPN)
 on:
   push:
     tags:
-      - 'v*'               # 如 v20240430
+      - 'v*'               # 例如 v20240430
   release:
     types: [published]
   workflow_dispatch:
@@ -49,7 +49,7 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 3️⃣ Prepare a VPN‑free .config (the crucial part)
+      # 3️⃣ Prepare a VPN‑free .config (critical part)
       # ------------------------------------------------------------
       - name: Prepare firmware config (disable every VPN feature)
         env:
@@ -57,7 +57,7 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # a) Force the board‑template VPN options to "n"
+          # ── a) 把模板里所有 VPN 选项强制改成 n（在复制前完成）
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' configs/templates/${TNAME}.config
@@ -65,10 +65,10 @@ jobs:
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' configs/templates/${TNAME}.config
 
-          # b) copy the now‑clean template to .config
+          # ── b) 复制已经被改成 n 的模板
           cp -f configs/templates/${TNAME}.config .config
 
-          # c) delete the other plugins that the original workflow already strips
+          # ── c) 删除原 workflow 已经剔除的其它插件（保持不变）
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -84,23 +84,41 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # d) **关键**：修改内核层的 VPN（PPP / PPTP / L2TP）
+          # ── d) **关键**：修改内核层的 VPN（PPP / PPTP / L2TP / TUN）
           KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
           if [ -f "$KERNEL_CFG" ]; then
-            # 删除可能已存在的行
+            # 删除可能已存在的行（防止冲突）
             sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
             sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
             sed -i '/CONFIG_L2TP/d' "$KERNEL_CFG"
+            sed -i '/CONFIG_TUN/d'   "$KERNEL_CFG"
 
-            # 明确写 n（即使原文件里根本没有这些行）
+            # **显式写 n**（即使原文件里根本没有这些行也会新增）
             echo "CONFIG_PPP=n"        >> "$KERNEL_CFG"
             echo "CONFIG_PPP_MPPE=n"   >> "$KERNEL_CFG"
             echo "CONFIG_PPTP=n"       >> "$KERNEL_CFG"
             echo "CONFIG_L2TP=n"        >> "$KERNEL_CFG"
+            echo "CONFIG_TUN=n"        >> "$KERNEL_CFG"
 
-            # 为了确保 Padavan 读取我们的文件，复制成默认名字
+            # 让 Padavan 读取我们编辑后的文件（复制成默认名字）
             cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
           fi
+
+      # ------------------------------------------------------------
+      # 4️⃣ **前置检查**：确认 .config 与 kernel_config 已经是 “n”
+      # ------------------------------------------------------------
+      - name: Pre‑build VPN config sanity check
+        env:
+          TNAME: YK-L1
+        run: |
+          cd /opt/rt-n56u/trunk
+          echo "=== Pre‑build .config VPN check ==="
+          grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)' .config && \
+            { echo "❌ VPN option still set to y in .config!"; exit 1; } || echo "✅ .config 已全部是 n"
+
+          echo "=== Pre‑build kernel_config VPN check ==="
+          grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)' "configs/boards/${TNAME}/kernel_config" && \
+            { echo "❌ Kernel VPN flag still y!"; exit 1; } || echo "✅ kernel_config 已全部是 n"
 
       # ------------------------------------------------------------
       # 5️⃣ Clean previous build artefacts (clear_tree)
@@ -128,7 +146,7 @@ jobs:
       - name: Remove any VPN binaries from the image (just in case)
         run: |
           find /opt/rt-n56u/trunk/images -type f \
-            \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" -o -iname "*ppp*" \) \
+            \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" -o -iname "*ppp*" -o -iname "*tun*" \) \
             -exec rm -f {} +
 
       # ------------------------------------------------------------
@@ -140,7 +158,7 @@ jobs:
           cp -f /opt/rt-n56u/trunk/images/*.trx /opt/images/
 
       # ------------------------------------------------------------
-      # 9️⃣ Upload artefact
+      # 9️⃣ Upload the artefact
       # ------------------------------------------------------------
       - name: Upload firmware artefact
         uses: actions/upload-artifact@v4
@@ -150,21 +168,17 @@ jobs:
           if-no-files-found: error
 
       # ------------------------------------------------------------
-      # 🔍 (Optional) Verify that no VPN flags are present any more
+      # 🔍 **后置检查**：再次确认最终固件里没有 VPN 关键字
       # ------------------------------------------------------------
-      - name: Verify VPN really disabled
-        env:
-          TNAME: YK-L1
+      - name: Post‑build verify VPN really disabled
         run: |
-          # 必须进入源码目录才能看到 .config 与 kernel_config
-          cd /opt/rt-n56u/trunk
-
-          echo "=== .config VPN check ==="
-          grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)' .config && \
-            { echo "❌ VPN flag still present in .config!"; exit 1; } || \
-            echo "✅ All user‑space VPN flags are n"
-
-          echo "=== kernel_config VPN check ==="
-          grep -E 'CONFIG_(PPP|PPTP|L2TP)' "configs/boards/${TNAME}/kernel_config" && \
-            { echo "❌ Kernel VPN flags still present!"; exit 1; } || \
-            echo "✅ Kernel VPN flags are n"
+          # 这里直接检查已经生成的 .trx 包（不需要再去源码目录）
+          for f in /opt/images/*.trx; do
+            echo "=== 检查 $f 中是否还有 VPN 关键字 ==="
+            if strings "$f" | grep -i -E 'openvpn|pptp|l2tp|ppp|tun'; then
+              echo "❌ $f 仍然包含 VPN 相关字样！"
+              exit 1
+            else
+              echo "✅ $f 中未发现 VPN 关键字"
+            fi
+          done
