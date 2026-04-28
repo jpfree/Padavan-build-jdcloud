@@ -3,7 +3,7 @@ name: Build Padavan YK‑L1 (no VPN)
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*'               # e.g. v20240430
   release:
     types: [published]
   workflow_dispatch:
@@ -57,10 +57,10 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # copy board template
+          # ---- ① copy the board‑specific template ---------------------------------
           cp -f configs/templates/${TNAME}.config .config
 
-          # force all VPN‑related symbols to "n"
+          # ---- ② force every VPN‑related option to "n" ---------------------------
           echo "CONFIG_FIRMWARE_INCLUDE_OPENVPN=n"      >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_RPL2TP=n"      >> .config
@@ -68,7 +68,7 @@ jobs:
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n"    >> .config
 
-          # delete the original “strip” options (keep them removed)
+          # ---- ③ delete the other options the original workflow stripped -----
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -84,16 +84,23 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # optional: remove kernel‑level VPN modules (PPP/PPTP/L2TP)
-          KERNEL_CFG="configs/boards/${TNAME}/kernel_config"
+          # ---- ④ (可选) 删除内核层的 VPN 模块（PPP/PPTP/L2TP） ------------
+          # 正确的内核配置文件路径是 kernel-3.4.x.config
+          KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
           if [ -f "$KERNEL_CFG" ]; then
+            # 直接在原文件上做修改
             sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
             sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
-            sed -i '/CONFIG_L2TP/d' "$KERNEL_CFG"
+            sed -i '/CONFIG_L2TP/d'  "$KERNEL_CFG"
+            # 把可能的 “=y” 强制改成 “=n”
             sed -i 's/^CONFIG_PPP=.*/CONFIG_PPP=n/'                 "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'       "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'               "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_L2TP=.*/CONFIG_L2TP=n/'               "$KERNEL_CFG" || true
+
+            # 为了让 Padavan 的 makefile 必然使用我们刚刚改好的文件，
+            # 把它再拷贝成默认名字 “kernel_config”。（可省略，只是保险措施）
+            cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
           fi
 
       # ------------------------------------------------------------
@@ -106,7 +113,7 @@ jobs:
           ./clear_tree
 
       # ------------------------------------------------------------
-      # 5️⃣ Build firmware (must be executed under fakeroot)
+      # 5️⃣ Build firmware (must run under fakeroot)
       # ------------------------------------------------------------
       - name: Build firmware (no VPN)
         env:
@@ -114,14 +121,13 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
           chmod +x build_firmware_modify
-          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release
+          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release (no debug)
 
       # ------------------------------------------------------------
-      # 6️⃣ Collect the generated *.trx file (fixed path)
+      # 6️⃣ Collect the generated *.trx file (fixed absolute path)
       # ------------------------------------------------------------
       - name: Collect built firmware
         run: |
-          # 把编译好的固件拷贝到 /opt/images，后面 upload‑artifact 会使用这个路径
           mkdir -p /opt/images
           cp -f /opt/rt-n56u/trunk/images/*.trx /opt/images/
 
@@ -142,7 +148,7 @@ jobs:
         run: |
           echo "=== .config VPN check ==="
           grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)' .config && \
-            { echo "❌ VPN flag still present!"; exit 1; } || echo "✅ .config 中全部是 n"
+            { echo "❌ VPN flag still present!"; exit 1; } || echo "✅ .config 中所有 VPN 均为 n"
           echo "=== kernel_config VPN check ==="
           grep -E 'CONFIG_(PPP|PPTP|L2TP)' configs/boards/${{ env.TNAME }}/kernel_config && \
-            { echo "❌ Kernel VPN modules still present!"; exit 1; } || echo "✅ Kernel VPN modules cleared"
+            { echo "❌ Kernel VPN 模块仍存在!"; exit 1; } || echo "✅ Kernel VPN 已全部删除"
