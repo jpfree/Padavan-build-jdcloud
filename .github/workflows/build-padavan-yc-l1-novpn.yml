@@ -132,8 +132,8 @@ jobs:
          cp "configs/boards/${{ env.TNAME }}/kernel_config" "linux-3.4.x/.config"
 
          ARCH=mips \
-       CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
-       ./linux-3.4.x/scripts/kconfig/conf --silentoldconfig linux-3.4.x/.config
+         CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
+         ./linux-3.4.x/scripts/kconfig/conf --silentoldconfig linux-3.4.x/.config
 
 
       # ------------------------------------------------------------
