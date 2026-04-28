@@ -1,4 +1,4 @@
-name: Build Padavan YK-L1 (no VPN)
+name: Build Padavan YK‑L1 (no VPN)
 
 # ---------------------------------------------------------------
 # 触发方式：Tag、Release、手动或 watch 事件
@@ -21,7 +21,7 @@ jobs:
 
     env:
       TNAME: YK-L1               # 目标板子
-      KERNEL: 3.4                # 只针对 3.4 版本
+      KERNEL: 3.4                # 本工作流只针对 3.4
       # 交叉编译前缀将在后面的 “Clone Padavan source” 步里写入
       CROSS_COMPILE: ""
 
@@ -49,8 +49,8 @@ jobs:
 
       # -----------------------------------------------------------
       # 3️⃣ 克隆 Padavan 源码并下载交叉编译工具链
-      #     同时在系统根目录创建软链接，使 Padavan 里硬编码的
-      #     /opt/rt‑n56u/... 路径能够找到工具链
+      #    同时在系统根目录创建软链接，使 Padavan 里硬编码的
+      #    /opt/rt‑n56u/... 路径能够找到工具链
       # -----------------------------------------------------------
       - name: Clone Padavan source and create /opt link
         id: clone
@@ -91,7 +91,7 @@ jobs:
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' "$tmpl"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' "$tmpl"
 
-          # 把模板复制为实际使用的 .config（随后会交给 fakeroot 编译器使用）
+          # 复制模板为实际使用的 .config
           cp -f "$tmpl" .config
 
           # ----- b) 删除本工作流不需要的其它插件（保持原有清单） -----
@@ -100,27 +100,25 @@ jobs:
             sed -i "/CONFIG_FIRMWARE_INCLUDE_${opt}/d" .config
           done
 
-          # ----- c) 关闭内核层 VPN（PPP / PPP‑MPPE / PPTP / L2TP / TUN） -----
+          # ----- c) 关闭内核层所有 VPN‑相关选项（PPP / PPP‑MPPE / PPTP / L2TP / TUN / 相关 netfilter） -----
           kernel_cfg="configs/boards/${TNAME}/kernel-3.4.x.config"
 
-          # 删除可能已存在的行（防止冲突）
-          sed -i '/CONFIG_PPP/d'          "$kernel_cfg"
-          sed -i '/CONFIG_PPP_MPPE/d'     "$kernel_cfg"
-          sed -i '/CONFIG_PPTP/d'         "$kernel_cfg"
-          sed -i '/CONFIG_L2TP/d'         "$kernel_cfg"
-          sed -i '/CONFIG_TUN/d'          "$kernel_cfg"
-
-          # 强制追加 “=n”。（即使文件里本来没有这些选项也会新增）
+          # 强制写 n（即使文件里本来没有这些行也会新增）
           {
+            echo "CONFIG_TUN=n"
+            echo "CONFIG_INET_TUNNEL=n"
+            echo "CONFIG_L2TP=n"
+            echo "CONFIG_NF_CONNTRACK_PPTP=n"
+            echo "CONFIG_NF_NAT_PPTP=n"
             echo "CONFIG_PPP=n"
             echo "CONFIG_PPP_MPPE=n"
             echo "CONFIG_PPTP=n"
-            echo "CONFIG_L2TP=n"
-            echo "CONFIG_TUN=n"
           } >> "$kernel_cfg"
 
-          # Padavan 在编译 kernel 前会读取 configs/boards/${TNAME}/kernel_config，
-          # 把我们编辑好的 kernel_config 复制为该文件
+          # 注意：**不要**删除 “# CONFIG_… is not set” 行，否则 Kconfig 会把它们恢复为默认 y
+          # 只需要保证我们关心的符号已经出现并显式设为 n 即可
+
+          # 把编辑好的文件复制为 Padavan 在编译时实际读取的 kernel_config
           cp "$kernel_cfg" "configs/boards/${TNAME}/kernel_config"
 
       # -----------------------------------------------------------
@@ -130,45 +128,40 @@ jobs:
         run: |
           cd rt-n56u/trunk
 
-          echo "=== 检查 .config 是否仍有 =y 的 VPN 选项 ==="
+          echo "=== 检查 .config 中是否仍有 =y 的 VPN 选项 ==="
           if grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)=y' .config; then
-            echo "❌ .config 中仍有 VPN 项被设为 y！"
+            echo "❌ .config 中仍有 VPN 项为 y！"
             exit 1
           else
             echo "✅ .config 已全部是 n"
           fi
 
           echo "=== 检查 kernel_config 是否仍有 =y 的内核 VPN 选项 ==="
-          if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)=y' "configs/boards/${TNAME}/kernel_config"; then
-            echo "❌ kernel_config 中仍有 VPN 项被设为 y！"
+          if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN|INET_TUNNEL|NF_CONNTRACK_PPTP|NF_NAT_PPTP)=y' "configs/boards/${TNAME}/kernel_config"; then
+            echo "❌ kernel_config 中仍有 VPN 项为 y！"
             exit 1
           else
             echo "✅ kernel_config 已全部是 n"
           fi
 
       # -----------------------------------------------------------
-      # 6️⃣ 把编辑好的 kernel_config 复制到 kernel 目录并再次强制写 n
-      #    （不使用 Kconfig‑conf，直接编辑 .config，避免解析错误）
+      # 6️⃣ 把编辑好的 kernel_config 复制到 kernel 源树并 **不** 删除任何非 CONFIG 行
+      #    （直接使用我们已经手动写好的 n，省去 silentoldconfig）
       # -----------------------------------------------------------
-      - name: Apply kernel config (force write n)
+      - name: Apply kernel config (no silentoldconfig)
         run: |
           cd rt-n56u/trunk
 
-          # 复制为 kernel 源树的 .config
+          # 复制为 kernel 目录下的 .config（Padavan 会直接使用它进行编译）
           cp "configs/boards/${TNAME}/kernel_config" "linux-3.4.x/.config"
 
-          # 只保留合法的 CONFIG_ 行（去掉所有 "# CONFIG_… is not set" 之类的非法语句）
-          sed -i '/^CONFIG_/!d' linux-3.4.x/.config
+          # 再次确保我们关心的选项已经是 n（防止意外被改回 y）
+          for opt in TUN INET_TUNNEL L2TP NF_CONNTRACK_PPTP NF_NAT_PPTP PPP PPP_MPPE PPTP; do
+            sed -i "s/^CONFIG_${opt}=.*/CONFIG_${opt}=n/" linux-3.4.x/.config
+          done
 
-          # 再次确保这几个选项是 n（防止 make 重新把它们设回 y）
-          sed -i 's/^CONFIG_PPP=.*/CONFIG_PPP=n/'                linux-3.4.x/.config
-          sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'    linux-3.4.x/.config
-          sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'            linux-3.4.x/.config
-          sed -i 's/^CONFIG_L2TP=.*/CONFIG_L2TP=n/'            linux-3.4.x/.config
-          sed -i 's/^CONFIG_TUN=.*/CONFIG_TUN=n/'              linux-3.4.x/.config
-
-          echo "=== 再次验证 .config 中的 VPN 选项均已是 n ==="
-          if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)=y' linux-3.4.x/.config; then
+          echo "=== 再次验证 .config 中的 VPN 关键选项均已是 n ==="
+          if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN|INET_TUNNEL|NF_CONNTRACK_PPTP|NF_NAT_PPTP)=y' linux-3.4.x/.config; then
             echo "❌ 仍有 VPN 项为 y！"
             exit 1
           else
@@ -194,10 +187,10 @@ jobs:
         run: |
           cd rt-n56u/trunk
           chmod +x build_firmware_modify
-          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release（不带 debug）
+          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release（不含 debug）
 
       # -----------------------------------------------------------
-      # 9️⃣ 防御性清理：再次删除可能残留的 VPN 二进制和内核模块
+      # 9️⃣ 防御性清理：再次删除可能残留的 VPN 二进制 / 内核模块
       # -----------------------------------------------------------
       - name: Remove any VPN binaries / kernel modules from the image (defensive)
         run: |
