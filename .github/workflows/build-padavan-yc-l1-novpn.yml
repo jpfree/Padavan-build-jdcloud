@@ -167,8 +167,6 @@ jobs:
         echo "CONFIG_FIRMWARE_INCLUDE_OPENSSH=n" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_DROPBEAR=y" >> .config
 
-                  # ------- 4️⃣ 锁定配置：老配置 (oldconfig) -------
-          make oldconfig   # 让所有 “=n” 生效，防止 defconfig 把它们改回 y
 
 
 
