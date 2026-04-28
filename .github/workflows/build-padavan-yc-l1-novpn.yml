@@ -49,7 +49,7 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 3️⃣ Prepare a VPN‑free .config  (THIS PART IS THE IMPORTANT ONE)
+      # 3️⃣ Prepare a VPN‑free .config (THIS PART IS THE IMPORTANT ONE)
       # ------------------------------------------------------------
       - name: Prepare firmware config (disable every VPN feature)
         env:
@@ -57,10 +57,10 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # ── a) 复制官方模板到 .config
+          # a) copy the board‑specific template
           cp -f configs/templates/${TNAME}.config .config
 
-          # ── b) 强制把所有用户空间 VPN 项写成 “n”
+          # b) force every user‑space VPN option to "n"
           echo "CONFIG_FIRMWARE_INCLUDE_OPENVPN=n"      >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_RPL2TP=n"      >> .config
@@ -68,7 +68,7 @@ jobs:
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n"    >> .config
 
-          # ── c) 删除原 workflow 已经去掉的其它插件选项（保持不变）
+          # c) delete the other options the original workflow already stripped
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -84,22 +84,22 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # ── d) **关键**：删除/禁用内核层的 VPN（PPP / PPTP / L2TP）
-          #      正确的文件名是 kernel-3.4.x.config
+          # d) **关键**：删除/禁用内核层的 VPN（PPP / PPTP / L2TP）
+          #    正确的文件名是 kernel-3.4.x.config
           KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
           if [ -f "$KERNEL_CFG" ]; then
-            # 删除整行
+            # 删除可能已经存在的行（保持干净）
             sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
             sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
-            sed -i '/CONFIG_L2TP/d'  "$KERNEL_CFG"
-            # 把可能出现的 “=y” 强制改成 “=n”
-            sed -i 's/^CONFIG_PPP=.*/CONFIG_PPP=n/'                 "$KERNEL_CFG" || true
-            sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'       "$KERNEL_CFG" || true
-            sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'               "$KERNEL_CFG" || true
-            sed -i 's/^CONFIG_L2TP=.*/CONFIG_L2TP=n/'               "$KERNEL_CFG" || true
+            sed -i '/CONFIG_L2TP/d' "$KERNEL_CFG"
 
-            # 为了让 Padavan 必然使用我们改好的文件，
-            # 复制成默认名字 “kernel_config”（可省略，只是保险）
+            # **强制写入 n**（即使原来没有这些行也会新建）
+            echo "CONFIG_PPP=n"        >> "$KERNEL_CFG"
+            echo "CONFIG_PPP_MPPE=n"   >> "$KERNEL_CFG"
+            echo "CONFIG_PPTP=n"       >> "$KERNEL_CFG"
+            echo "CONFIG_L2TP=n"        >> "$KERNEL_CFG"
+
+            # 为了让 Padavan 必然使用我们改好的文件，复制成默认名字 “kernel_config”
             cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
           fi
 
@@ -129,7 +129,6 @@ jobs:
       - name: Collect built firmware
         run: |
           mkdir -p /opt/images
-          # 使用绝对路径，确保可以找到编译好的固件
           cp -f /opt/rt-n56u/trunk/images/*.trx /opt/images/
 
       # ------------------------------------------------------------
