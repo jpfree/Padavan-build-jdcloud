@@ -16,13 +16,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 只在仓库拥有者本人触发时运行，防止他人滥用
+    # 只在仓库拥有者本人触发时执行，防止他人滥用
     if: github.event.repository.owner.id == github.event.sender.id
 
     env:
-      TNAME: YK-L1               # 目标板子名称
+      TNAME: YK-L1               # 目标板子
       KERNEL: 3.4                # 只针对 3.4 版本
-      # 交叉编译前缀会在后面的 “Clone Padavan source” 步里写入
+      # 交叉编译前缀将在后面的 “Clone Padavan source” 步里写入
       CROSS_COMPILE: ""
 
     steps:
@@ -48,9 +48,9 @@ jobs:
             libncurses5-dev libltdl-dev wget
 
       # -----------------------------------------------------------
-      # 3️⃣ 克隆 Padavan 源码（rt‑n56u）并下载交叉编译工具链
-      #    同时在系统根目录创建软链接，使 Padavan 里硬编码的
-      #    /opt/rt-n56u/... 路径能够找到工具链
+      # 3️⃣ 克隆 Padavan 源码并下载交叉编译工具链
+      #     同时在系统根目录创建软链接，使 Padavan 里硬编码的
+      #     /opt/rt‑n56u/... 路径能够找到工具链
       # -----------------------------------------------------------
       - name: Clone Padavan source and create /opt link
         id: clone
@@ -62,14 +62,15 @@ jobs:
           cd rt-n56u/toolchain-mipsel
           sh dl_toolchain.sh
 
-          # ---- 3) 为 Padavan 硬编码的 /opt/rt-n56u 目录做软链接 ----
-          #    这里把我们刚下载的 toolchain‑3.4.x 软链接到 /opt/rt-n56u/...
+          # ---- 3) 为 Padavan 硬编码的 /opt/rt‑n56u 目录做软链接 ----
+          #     这里把我们刚下载的 toolchain‑3.4.x 软链接到 /opt/rt‑n56u/...
           sudo mkdir -p /opt/rt-n56u/toolchain-mipsel
           sudo ln -s "$(pwd)/toolchain-3.4.x" \
             /opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x
 
           # ---- 4) 把交叉编译前缀写入环境变量，后面的 make 会直接使用 ----
-          echo "CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc-" >> $GITHUB_ENV
+          echo "CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc-" \
+            >> $GITHUB_ENV
 
           # ---- 5) 创建固件输出目录（CI 需要一个绝对路径） ----
           mkdir -p $GITHUB_WORKSPACE/images
@@ -81,7 +82,7 @@ jobs:
         run: |
           cd rt-n56u/trunk
 
-          # ----- a) 关闭用户空间所有 VPN 插件 -----
+          # ----- a) 关闭用户空间所有 VPN 插件（在模板里直接改成 n） -----
           tmpl="configs/templates/${TNAME}.config"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' "$tmpl"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' "$tmpl"
@@ -90,25 +91,26 @@ jobs:
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' "$tmpl"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' "$tmpl"
 
+          # 把模板复制为实际使用的 .config（随后会交给 fakeroot 编译器使用）
           cp -f "$tmpl" .config
 
           # ----- b) 删除本工作流不需要的其它插件（保持原有清单） -----
-          for opt in MENTOHUST SCUTCLIENT SSSERVER DNSFORWARDER ADBYBY FRPC FRPS \
+          for opt in MENTOHUST SCUTCLIENT SSSSERVER DNSFORWARDER ADBYBY FRPC FRPS \
                      TUNSAFE ALIDDNS SMARTDNS SRELAY HTOP SOCAT SMBD; do
             sed -i "/CONFIG_FIRMWARE_INCLUDE_${opt}/d" .config
           done
 
-          # ----- c) 关闭内核层 VPN（PPP / PPTP / L2TP / TUN） -----
+          # ----- c) 关闭内核层 VPN（PPP / PPP‑MPPE / PPTP / L2TP / TUN） -----
           kernel_cfg="configs/boards/${TNAME}/kernel-3.4.x.config"
 
-          # 删除可能已存在的行，防止冲突
-          sed -i '/CONFIG_PPP/d'        "$kernel_cfg"
-          sed -i '/CONFIG_PPP_MPPE/d'   "$kernel_cfg"
-          sed -i '/CONFIG_PPTP/d'       "$kernel_cfg"
-          sed -i '/CONFIG_L2TP/d'       "$kernel_cfg"
-          sed -i '/CONFIG_TUN/d'        "$kernel_cfg"
+          # 删除可能已存在的行（防止冲突）
+          sed -i '/CONFIG_PPP/d'          "$kernel_cfg"
+          sed -i '/CONFIG_PPP_MPPE/d'     "$kernel_cfg"
+          sed -i '/CONFIG_PPTP/d'         "$kernel_cfg"
+          sed -i '/CONFIG_L2TP/d'         "$kernel_cfg"
+          sed -i '/CONFIG_TUN/d'          "$kernel_cfg"
 
-          # 强制写 n（即使文件里本来没有这些行也会新增）
+          # 强制追加 “=n”。（即使文件里本来没有这些选项也会新增）
           {
             echo "CONFIG_PPP=n"
             echo "CONFIG_PPP_MPPE=n"
@@ -117,7 +119,8 @@ jobs:
             echo "CONFIG_TUN=n"
           } >> "$kernel_cfg"
 
-          # Padavan 在 make linux 前会读取 configs/boards/${TNAME}/kernel_config
+          # Padavan 在编译 kernel 前会读取 configs/boards/${TNAME}/kernel_config，
+          # 把我们编辑好的 kernel_config 复制为该文件
           cp "$kernel_cfg" "configs/boards/${TNAME}/kernel_config"
 
       # -----------------------------------------------------------
@@ -154,9 +157,12 @@ jobs:
           # 复制为 kernel 源树的 .config
           cp "configs/boards/${TNAME}/kernel_config" "linux-3.4.x/.config"
 
+          # 只保留合法的 CONFIG_ 行（去掉所有 "# CONFIG_… is not set" 之类的非法语句）
+          sed -i '/^CONFIG_/!d' linux-3.4.x/.config
+
           # 再次确保这几个选项是 n（防止 make 重新把它们设回 y）
           sed -i 's/^CONFIG_PPP=.*/CONFIG_PPP=n/'                linux-3.4.x/.config
-          sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'      linux-3.4.x/.config
+          sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'    linux-3.4.x/.config
           sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'            linux-3.4.x/.config
           sed -i 's/^CONFIG_L2TP=.*/CONFIG_L2TP=n/'            linux-3.4.x/.config
           sed -i 's/^CONFIG_TUN=.*/CONFIG_TUN=n/'              linux-3.4.x/.config
@@ -191,11 +197,11 @@ jobs:
           fakeroot ./build_firmware_modify $TNAME 0   # 0 = release（不带 debug）
 
       # -----------------------------------------------------------
-      # 9️⃣ 防御性清理：再次删除可能残留的 VPN 可执行文件和内核模块
+      # 9️⃣ 防御性清理：再次删除可能残留的 VPN 二进制和内核模块
       # -----------------------------------------------------------
       - name: Remove any VPN binaries / kernel modules from the image (defensive)
         run: |
-          # 删除用户空间可能的 VPN 二进制
+          # 删除用户空间可能的 VPN 可执行文件
           find rt-n56u/trunk/images -type f \
             \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" \
                -o -iname "*ppp*" -o -iname "*tun*" \) -exec rm -f {} +
