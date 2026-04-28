@@ -16,14 +16,16 @@ jobs:
     if: github.event.repository.owner.id == github.event.sender.id
 
     env:
-      TNAME: YK-L1
-      KERNEL: 3.4
-      CROSS_COMPILE: ""
+      TNAME: YK-L1               # 目标板子
+      KERNEL: 3.4                # 只针对 3.4 版本
+      CROSS_COMPILE: ""          # 下面一步会写入
 
     steps:
+      # 1️⃣ Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2️⃣ 安装依赖
       - name: Install build dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -36,6 +38,7 @@ jobs:
             pkg-config zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev \
             libncurses5-dev libltdl-dev wget
 
+      # 3️⃣ 克隆源码 & 下载工具链（并创建 /opt/rt-n56u 链接）
       - name: Clone Padavan source and create /opt link
         id: clone
         run: |
@@ -53,14 +56,12 @@ jobs:
 
           mkdir -p $GITHUB_WORKSPACE/images
 
-      # -----------------------------------------------------------
-      # 4️⃣ 生成 **彻底禁用 VPN** 的 .config（用户空间）以及 kernel‑config（内核层）
-      # -----------------------------------------------------------
+      # 4️⃣ 生成 **彻底禁用 VPN** 的 .config 与 kernel‑config
       - name: Prepare firmware config (disable every VPN feature)
         run: |
           cd rt-n56u/trunk
 
-          # ----- a) 关闭用户空间所有 VPN 插件 -----
+          # ----- a) 禁用用户空间 VPN 插件 -----
           tmpl="configs/templates/${TNAME}.config"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' "$tmpl"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' "$tmpl"
@@ -68,24 +69,23 @@ jobs:
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n/' "$tmpl"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' "$tmpl"
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' "$tmpl"
-
           cp -f "$tmpl" .config
 
-          # ----- b) 删除本工作流不需要的其它插件 -----
+          # ----- b) 删除其它不需要的插件 -----
           for opt in MENTOHUST SCUTCLIENT SSSSERVER DNSFORWARDER ADBYBY FRPC FRPS \
                      TUNSAFE ALIDDNS SMARTDNS SRELAY HTOP SOCAT SMBD; do
             sed -i "/CONFIG_FIRMWARE_INCLUDE_${opt}/d" .config
           done
 
-          # ----- c) 关闭内核层所有 VPN 相关选项 -----
+          # ----- c) 彻底禁用内核层所有 VPN 相关选项 -----
           kernel_cfg="configs/boards/${TNAME}/kernel-3.4.x.config"
 
-          # 1️⃣ 把我们关心的每一个符号统一改写为 =n（匹配 y、m、甚至被 # 注释的 y）
           for opt in INET_TUNNEL L2TP TUN PPTP PPP PPP_MPPE NF_CONNTRACK_PPTP NF_NAT_PPTP; do
+            # 把可能的 “# CONFIG_…=y” 或者 “CONFIG_…=y/m” 替换成 “=n”
             sed -i -E "s|^[#[:space:]]*CONFIG_${opt}=.*|CONFIG_${opt}=n|g" "$kernel_cfg"
           done
 
-          # 2️⃣ 保险：如果某个选项根本不存在，追加一次确保它是 n
+          # 保险：如果某些符号根本不存在，追加一次确保为 n
           {
             echo "CONFIG_INET_TUNNEL=n"
             echo "CONFIG_L2TP=n"
@@ -97,12 +97,10 @@ jobs:
             echo "CONFIG_NF_NAT_PPTP=n"
           } >> "$kernel_cfg"
 
-          # 3️⃣ 把编辑好的文件复制为 Padavan 编译时读取的 kernel_config
+          # 将编辑好的文件复制为 Padavan 编译时真正使用的 kernel_config
           cp "$kernel_cfg" "configs/boards/${TNAME}/kernel_config"
 
-      # -----------------------------------------------------------
-      # 5️⃣ 前置检查：确保所有 VPN 项均为 =n（只匹配 =y 才报错）
-      # -----------------------------------------------------------
+      # 5️⃣ 前置检查（只匹配 =y，确保没有遗漏）
       - name: Pre‑build VPN sanity check
         run: |
           cd rt-n56u/trunk
@@ -123,20 +121,22 @@ jobs:
             echo "✅ kernel_config 已全部是 n"
           fi
 
-      # -----------------------------------------------------------
-      # 6️⃣ 把编辑好的 kernel_config 直接复制为 linux‑3.4.x/.config（不走 silentoldconfig）
-      # -----------------------------------------------------------
+      # 6️⃣ 把干净的 kernel_config 直接拷贝为 linux‑3.4.x/.config（不走 silentoldconfig）
       - name: Apply kernel config (no silentoldconfig)
         run: |
           cd rt-n56u/trunk
           cp "configs/boards/${TNAME}/kernel_config" "linux-3.4.x/.config"
 
-          # 再次确保关键选项仍是 n（防止意外被改回 y）
+          # 删除所有非 CONFIG_ 行（去掉 “# CONFIG_… is not set” 之类的注释），
+          # 只保留我们已经显式写好的合法 CONFIG 行
+          sed -i '/^CONFIG_/!d' linux-3.4.x/.config
+
+          # 再次确保关键 VPN 项为 n（防止意外被改回 y）
           for opt in INET_TUNNEL L2TP TUN PPTP PPP PPP_MPPE NF_CONNTRACK_PPTP NF_NAT_PPTP; do
             sed -i "s/^CONFIG_${opt}=.*/CONFIG_${opt}=n/" linux-3.4.x/.config
           done
 
-          echo "=== 再次验证 .config 中 VPN 关键选项均已是 n ==="
+          echo "=== 再次验证 .config 中的 VPN 关键选项均已是 n ==="
           if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN|INET_TUNNEL|NF_CONNTRACK_PPTP|NF_NAT_PPTP)=y' linux-3.4.x/.config; then
             echo "❌ 仍有 VPN 项为 y！"
             exit 1
@@ -144,12 +144,14 @@ jobs:
             echo "✅ 验证通过，所有 VPN 项均为 n"
           fi
 
+      # 7️⃣ 清理旧产物
       - name: Clean previous build artefacts
         run: |
           cd rt-n56u/trunk
           chmod +x clear_tree
           ./clear_tree
 
+      # 8️⃣ 正式编译（fakeroot）
       - name: Build firmware (no VPN)
         env:
           TNAME: ${{ env.TNAME }}
@@ -159,17 +161,21 @@ jobs:
           chmod +x build_firmware_modify
           fakeroot ./build_firmware_modify $TNAME 0
 
+      # 9️⃣ 防御性清理：删除任何残留的 VPN 二进制/模块
       - name: Remove any VPN binaries / kernel modules from the image (defensive)
         run: |
           find rt-n56u/trunk/images -type f \
             \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" \
                -o -iname "*ppp*" -o -iname "*tun*" \) -exec rm -f {} +
+
           find rt-n56u/trunk/images -name "*.ko" -type f -exec rm -f {} +
 
+      # 10️⃣ 收集生成的 *.trx
       - name: Collect built firmware
         run: |
           cp -f rt-n56u/trunk/images/*.trx ${{ github.workspace }}/images/
 
+      # 11️⃣ 上传 artefact
       - name: Upload firmware artefact
         uses: actions/upload-artifact@v4
         with:
@@ -177,6 +183,7 @@ jobs:
           path: ${{ github.workspace }}/images/*.trx
           if-no-files-found: error
 
+      # 12️⃣ 最终 strings 检查（如果这里还能搜到 vpn 关键字，说明还有遗漏）
       - name: Post‑build VPN verification (strings)
         run: |
           for f in ${{ github.workspace }}/images/*.trx; do
