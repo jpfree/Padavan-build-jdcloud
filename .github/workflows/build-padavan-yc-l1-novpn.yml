@@ -1,15 +1,12 @@
-# --------------------------------------------------------------
-#  Padavan‑build‑jdcloud  / .github/workflows/build-padavan-yc-l1-novpn.yml
-# --------------------------------------------------------------
 name: Build Padavan YK‑L1 (no VPN)
 
 on:
   push:
     tags:
-      - 'v*'                 # 例如 v20240430
+      - 'v*'                 # e.g. v20240430
   release:
     types: [published]
-  workflow_dispatch:          # 手动触发
+  workflow_dispatch:
   watch:
     types: [started]
 
@@ -20,7 +17,7 @@ jobs:
 
     steps:
       # ------------------------------------------------------------
-      # 1️⃣ Checkout & install build dependencies
+      # 1️⃣ Checkout & install dependencies
       # ------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@master
@@ -48,12 +45,11 @@ jobs:
           else
             git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
           fi
-          cd /opt/rt-n56u/toolchain-mipsel
-          sh dl_toolchain.sh
+          cd /opt/rt-n56u/toolchain-mipsel && sh dl_toolchain.sh
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 3️⃣ Prepare a **VPN‑free** .config
+      # 3️⃣ Prepare a clean, VPN‑free .config
       # ------------------------------------------------------------
       - name: Prepare firmware config (disable every VPN feature)
         env:
@@ -61,11 +57,10 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # ① 复制官方模板
+          # ① copy the board template
           cp -f configs/templates/${TNAME}.config .config
 
-          # ② **强制把所有 VPN 选项写成 n**
-          #    （如果你只想保留某个组件，只把对应行改为 y，其他保持 n）
+          # ② force all VPN‑related options to “n”
           echo "CONFIG_FIRMWARE_INCLUDE_OPENVPN=n"      >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_RPL2TP=n"      >> .config
@@ -73,7 +68,7 @@ jobs:
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n" >> .config
           echo "CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n"    >> .config
 
-          # ③ 删除原 workflow 中手工去掉的其它选项（保持不变）
+          # ③ delete the other options that the original workflow stripped
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -89,14 +84,12 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # ④ **（可选）去掉内核层的 PPP / PPTP / L2TP**
-          #    这一步对“完全去 VPN”最彻底，但如果你只关心用户空间的 VPN，直接删掉就可以。
+          # ---- optional: also kill kernel‑level VPN modules (PPP/PPTP/L2TP) ----
           KERNEL_CFG="configs/boards/${TNAME}/kernel_config"
           if [ -f "$KERNEL_CFG" ]; then
             sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
             sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
-            sed -i '/CONFIG_L2TP/d'  "$KERNEL_CFG"
-            # 确保即使文件里用了 “=y” 也改成 “=n”
+            sed -i '/CONFIG_L2TP/d' "$KERNEL_CFG"
             sed -i 's/^CONFIG_PPP=.*/CONFIG_PPP=n/'                 "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'       "$KERNEL_CFG" || true
             sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'               "$KERNEL_CFG" || true
@@ -110,10 +103,10 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
           chmod +x clear_tree
-          ./clear_tree      # 只要把 images/、out/、tmp/ 等目录删掉即可
+          ./clear_tree
 
       # ------------------------------------------------------------
-      # 5️⃣ Build firmware (build_firmware_modify)
+      # 5️⃣ Build firmware (must be executed under fakeroot)
       # ------------------------------------------------------------
       - name: Build firmware (no VPN)
         env:
@@ -121,10 +114,10 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
           chmod +x build_firmware_modify
-          ./build_firmware_modify $TNAME 0   # 0 = release（不打开 debug）
+          fakeroot ./build_firmware_modify $TNAME 0   # <-- IMPORTANT: fakeroot!
 
       # ------------------------------------------------------------
-      # 6️⃣ Gather the produced *.trx (or *.bin) file
+      # 6️⃣ Collect the generated *.trx file
       # ------------------------------------------------------------
       - name: Collect built firmware
         run: |
@@ -132,7 +125,7 @@ jobs:
           cp -f images/*.trx /opt/images/
 
       # ------------------------------------------------------------
-      # 7️⃣ Upload as a GitHub Actions artefact
+      # 7️⃣ Upload as CI artefact
       # ------------------------------------------------------------
       - name: Upload firmware artefact
         uses: actions/upload-artifact@v4
@@ -142,13 +135,13 @@ jobs:
           if-no-files-found: error
 
       # ------------------------------------------------------------
-      # 8️⃣ (Optional) Safety‑net – make CI fail if any VPN flag slipped back in
+      # 8️⃣ (Optional) Verify that no VPN flag slipped back in
       # ------------------------------------------------------------
       - name: Verify VPN really disabled
         run: |
-          echo "=== .config 检查 ==="
+          echo "=== .config VPN check ==="
           grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)' .config && \
-            { echo "❌ VPN 选项仍为 y！"; exit 1; } || echo "✅ .config 中全部是 n"
-          echo "=== kernel_config 检查 ==="
+            { echo "❌ VPN flag still present!"; exit 1; } || echo "✅ VPN flags are all n"
+          echo "=== kernel_config VPN check ==="
           grep -E 'CONFIG_(PPP|PPTP|L2TP)' configs/boards/${{ env.TNAME }}/kernel_config && \
-            { echo "❌ 内核 VPN 模块仍存在！"; exit 1; } || echo "✅ 内核 VPN 已全部删除"
+            { echo "❌ Kernel VPN modules still present!"; exit 1; } || echo "✅ Kernel VPN modules cleared"
