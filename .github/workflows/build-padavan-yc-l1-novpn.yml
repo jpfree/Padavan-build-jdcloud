@@ -82,6 +82,27 @@ jobs:
         sed -i '/CONFIG_FIRMWARE_INCLUDE_DROPBEAR/d' .config
         sed -i '/CONFIG_FIRMWARE_INCLUDE_U2EC/d' .config
 
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' .config
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' .config
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' .config
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n/' .config
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' .config
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' .config
+
+                    # ------- 3️⃣ 处理内核层 VPN (PPP / PPTP / L2TP) -------
+          KERNEL_CFG="configs/boards/$TNAME/kernel-3.4.x.config"
+          if [ -f "$KERNEL_CFG" ]; then
+            sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
+            sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
+            sed -i '/CONFIG_L2TP/d' "$KERNEL_CFG"
+            sed -i 's/^CONFIG_PPP=.*/CONFIG_PPP=n/'                 "$KERNEL_CFG" || true
+            sed -i 's/^CONFIG_PPP_MPPE=.*/CONFIG_PPP_MPPE=n/'       "$KERNEL_CFG" || true
+            sed -i 's/^CONFIG_PPTP=.*/CONFIG_PPTP=n/'               "$KERNEL_CFG" || true
+            sed -i 's/^CONFIG_L2TP=.*/CONFIG_L2TP=n/'               "$KERNEL_CFG" || true
+          fi
+
+
+
         
         
         ######################################################################
@@ -146,6 +167,11 @@ jobs:
         echo "CONFIG_FIRMWARE_INCLUDE_OPENSSH=n" >> .config
         echo "CONFIG_FIRMWARE_INCLUDE_DROPBEAR=y" >> .config
 
+                  # ------- 4️⃣ 锁定配置：老配置 (oldconfig) -------
+          make oldconfig   # 让所有 “=n” 生效，防止 defconfig 把它们改回 y
+
+
+
         
 
         
@@ -165,3 +191,10 @@ jobs:
       with:
         name: Padavan-packages
         path: /opt/images
+
+    - name: Verify VPN really disabled (optional safety net)
+      run: |
+          echo "=== 检查 .config 是否还有 VPN 开关 ==="
+          grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)' .config && { echo "❌ VPN 仍然打开！"; exit 1; } || echo "✅ .config 中的 VPN 已全部设为 n"
+          echo "=== 检查 kernel_config 中的 PPP/PPTP/L2TP ==="
+          grep -E 'CONFIG_(PPP|PPTP|L2TP)' configs/boards/${{ env.TNAME }}/kernel_config && { echo "❌ 内核 VPN 仍然存在！"; exit 1; } || echo "✅ 内核 VPN 已全部删除"
