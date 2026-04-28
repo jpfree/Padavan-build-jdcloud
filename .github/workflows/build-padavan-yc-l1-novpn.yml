@@ -127,10 +127,14 @@ jobs:
       # ------------------------------------------------------------
       - name: Apply kernel config changes (silentoldconfig)
         run: |
-          cd /opt/rt-n56u/trunk
-          # 这一步会读取我们刚写入的 kernel_config 并重新生成 .config
-          make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
-               -C linux-3.4.x scripts/kconfig/conf --silentoldconfig Kconfig
+         cd /opt/rt-n56u/trunk
+
+         cp "configs/boards/${{ env.TNAME }}/kernel_config" "linux-3.4.x/.config"
+
+         ARCH=mips \
+       CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
+       ./linux-3.4.x/scripts/kconfig/conf --silentoldconfig linux-3.4.x/.config
+
 
       # ------------------------------------------------------------
       # 6️⃣ Clean any previous build artefacts (clear_tree)
