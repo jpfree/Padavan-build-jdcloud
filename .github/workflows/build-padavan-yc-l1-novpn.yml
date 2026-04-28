@@ -17,7 +17,7 @@ jobs:
 
     steps:
       # ------------------------------------------------------------
-      # 1️⃣ Checkout & install dependencies
+      # 1️⃣ Checkout & install build dependencies
       # ------------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@master
@@ -49,7 +49,7 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 3️⃣ Prepare a VPN‑free .config (critical part)
+      # 3️⃣ Prepare a **VPN‑free** .config (the crucial part)
       # ------------------------------------------------------------
       - name: Prepare firmware config (disable every VPN feature)
         env:
@@ -57,7 +57,7 @@ jobs:
         run: |
           cd /opt/rt-n56u/trunk
 
-          # ── a) 在模板里把所有 VPN 选项直接改成 n（在复制前完成）
+          # ── a) 把模板里所有 VPN 选项直接改成 n（在复制前完成）
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' configs/templates/${TNAME}.config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' configs/templates/${TNAME}.config
@@ -68,7 +68,7 @@ jobs:
           # ── b) 复制已经改成 n 的模板
           cp -f configs/templates/${TNAME}.config .config
 
-          # ── c) 删除原 workflow 已经去掉的其它插件
+          # ── c) 删除原 workflow 已经去掉的其它插件选项（保持不变）
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
@@ -84,23 +84,23 @@ jobs:
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
 
-          # ── d) **关键**：改写内核层 VPN（PPP / PPTP / L2TP / TUN）
+          # ── d) **关键**：修改内核层的 VPN（PPP / PPTP / L2TP / TUN）
           KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
           if [ -f "$KERNEL_CFG" ]; then
-            # 删除可能已存在的行
+            # 删除可能已存在的行（防止冲突）
             sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
             sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
             sed -i '/CONFIG_L2TP/d' "$KERNEL_CFG"
             sed -i '/CONFIG_TUN/d'   "$KERNEL_CFG"
 
-            # **显式写 n**（即使文件里根本没有这些行也会新增）
+            # **显式写 n**（即使原文件里根本没有这些行也会新增）
             echo "CONFIG_PPP=n"        >> "$KERNEL_CFG"
             echo "CONFIG_PPP_MPPE=n"   >> "$KERNEL_CFG"
             echo "CONFIG_PPTP=n"       >> "$KERNEL_CFG"
             echo "CONFIG_L2TP=n"        >> "$KERNEL_CFG"
             echo "CONFIG_TUN=n"        >> "$KERNEL_CFG"
 
-            # 让 Padavan 使用我们编辑后的文件（复制成默认名字）
+            # 让 Padavan 正式使用我们编辑后的文件（复制为默认名字）
             cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
           fi
 
@@ -123,7 +123,17 @@ jobs:
             echo "✅ kernel_config 已全部是 n"
 
       # ------------------------------------------------------------
-      # 5️⃣ Clean any previous build artefacts (clear_tree)
+      # 5️⃣ Apply kernel changes (olddefconfig) – guarantees dependent options are cleared
+      # ------------------------------------------------------------
+      - name: Apply kernel config changes (olddefconfig)
+        run: |
+          cd /opt/rt-n56u/trunk/linux-3.4.x
+          # 这一步会读取我们刚才写入的 kernel_config 并把所有未定义的选项
+          # 重新写为默认值（我们已经把关键的两个写成 n）
+          make olddefconfig
+
+      # ------------------------------------------------------------
+      # 6️⃣ Clean any previous build artefacts (clear_tree)
       # ------------------------------------------------------------
       - name: Clean previous build
         run: |
@@ -132,7 +142,7 @@ jobs:
           ./clear_tree
 
       # ------------------------------------------------------------
-      # 6️⃣ Build the firmware (must run under fakeroot)
+      # 7️⃣ Build the firmware (must run under fakeroot)
       # ------------------------------------------------------------
       - name: Build firmware (no VPN)
         env:
@@ -143,16 +153,22 @@ jobs:
           fakeroot ./build_firmware_modify $TNAME 0   # 0 = release (no debug)
 
       # ------------------------------------------------------------
-      # 7️⃣ Remove any leftover VPN binaries (extra safety)
+      # 8️⃣ (Optional) Remove any leftover VPN binaries / kernel modules
       # ------------------------------------------------------------
-      - name: Remove any VPN binaries from the image (just in case)
+      - name: Remove any VPN binaries or kernel modules from the image (just in case)
         run: |
+          # 删除用户空间可执行文件
           find /opt/rt-n56u/trunk/images -type f \
             \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" -o -iname "*ppp*" -o -iname "*tun*" \) \
             -exec rm -f {} +
 
+          # 删除可能已经编译进镜像的内核模块文件 (*.ko)
+          find /opt/rt-n56u/trunk/images -name "*.ko" \
+            -type f \
+            -exec rm -f {} +
+
       # ------------------------------------------------------------
-      # 8️⃣ Collect the generated *.trx file (absolute path)
+      # 9️⃣ Collect the generated *.trx file (absolute path)
       # ------------------------------------------------------------
       - name: Collect built firmware
         run: |
@@ -160,7 +176,7 @@ jobs:
           cp -f /opt/rt-n56u/trunk/images/*.trx /opt/images/
 
       # ------------------------------------------------------------
-      # 9️⃣ Upload the artefact
+      # 🔟 Upload the artefact
       # ------------------------------------------------------------
       - name: Upload firmware artefact
         uses: actions/upload-artifact@v4
