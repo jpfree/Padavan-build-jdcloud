@@ -1,9 +1,10 @@
 name: Build Padavan YK‑L1 (no VPN)
 
+# 触发方式：Tag、Release、手动或 watch 事件
 on:
   push:
     tags:
-      - 'v*'               # 例如 v20240430
+      - 'v*'                # 例如 v20240430
   release:
     types: [published]
   workflow_dispatch:
@@ -13,173 +14,182 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    # 只在仓库所有者自己触发时运行，防止他人滥用
     if: github.event.repository.owner.id == github.event.sender.id
 
-    steps:
-      # ------------------------------------------------------------
-      # 1️⃣ Checkout & install dependencies
-      # ------------------------------------------------------------
-      - name: Checkout repository
-        uses: actions/checkout@master
+    env:
+      TNAME: YK-L1               # 目标板子
+      KERNEL: 3.4                # 使用的内核版本（本工作流只针对 3.4）
 
+    steps:
+      # -----------------------------------------------------------------
+      # 1️⃣ Checkout 本工作流所在的仓库（含 workflow 本身）
+      # -----------------------------------------------------------------
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # -----------------------------------------------------------------
+      # 2️⃣ 安装编译所需的全部软件包
+      # -----------------------------------------------------------------
       - name: Install build dependencies
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
           sudo apt-get update
           sudo apt-get -y install \
-            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
-            cpio git python3-docutils gettext automake autopoint texinfo \
-            build-essential help2man pkg-config zlib1g-dev libgmp3-dev \
-            libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget
+            unzip libtool-bin curl cmake gperf gawk flex bison \
+            nano xxd fakeroot cpio git python3-docutils gettext \
+            automake autopoint texinfo build-essential help2man \
+            pkg-config zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev \
+            libncurses5-dev libltdl-dev wget
 
-      # ------------------------------------------------------------
-      # 2️⃣ Clone Padavan source (rt‑n56u)
-      # ------------------------------------------------------------
-      - name: Clone Padavan source
-        env:
-          KERNEL: 3.4
+      # -----------------------------------------------------------------
+      # 3️⃣ 克隆 Padavan 源码（rt‑n56u）并下载交叉编译工具链
+      # -----------------------------------------------------------------
+      - name: Clone Padavan source (rt‑n56u)
         run: |
-          if [ "$KERNEL" = "4.4" ]; then
-            git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
-          else
-            git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
-          fi
-          cd /opt/rt-n56u/toolchain-mipsel && sh dl_toolchain.sh
+          # 克隆主仓库（depth=1 足够 CI 使用）
+          git clone --depth=1 https://github.com/jpfree/rt-n56u.git rt-n56u
+          # 下载 MIPS‑el 交叉编译工具链
+          cd rt-n56u/toolchain-mipsel
+          sh dl_toolchain.sh
+          # 创建固件输出目录（CI 需要一个绝对路径）
           mkdir -p /opt/images/
 
-      # ------------------------------------------------------------
-      # 3️⃣ Prepare a VPN‑free .config (critical part)
-      # ------------------------------------------------------------
+      # -----------------------------------------------------------------
+      # 4️⃣ 生成 **完全禁用 VPN** 的 .config（用户空间）和 kernel‑config（内核层）
+      # -----------------------------------------------------------------
       - name: Prepare firmware config (disable every VPN feature)
-        env:
-          TNAME: YK-L1
         run: |
-          cd /opt/rt-n56u/trunk
+          cd rt-n56u/trunk
 
-          # a) 把模板里所有 VPN 选项直接改成 n（在复制前完成）
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' configs/templates/${TNAME}.config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' configs/templates/${TNAME}.config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' configs/templates/${TNAME}.config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n/' configs/templates/${TNAME}.config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' configs/templates/${TNAME}.config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' configs/templates/${TNAME}.config
+          # ---- a) 关闭用户空间所有 VPN 相关选项 ----
+          tmpl="configs/templates/${TNAME}.config"
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' "$tmpl"
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' "$tmpl"
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' "$tmpl"
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n/' "$tmpl"
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' "$tmpl"
+          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' "$tmpl"
 
-          # b) 复制已经改成 n 的模板
-          cp -f configs/templates/${TNAME}.config .config
+          # 复制模板为实际使用的 .config
+          cp -f "$tmpl" .config
 
-          # c) 删除原 workflow 已经去掉的其它插件选项（保持不变）
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SSSERVER/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_DNSFORWARDER/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ADBYBY/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FRPC/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FRPS/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_TUNSAFE/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ALIDDNS/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMARTDNS/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SRELAY/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_HTOP/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SOCAT/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
+          # ---- b) 删除本工作流不需要的其它插件（保持原有清单）----
+          for opt in MENTOHUST SCUTCLIENT SSSERVER DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE \
+                     ALIDDNS SMARTDNS SRELAY HTOP SOCAT SMBD; do
+            sed -i "/CONFIG_FIRMWARE_INCLUDE_${opt}/d" .config
+          done
 
-          # d) **关键**：修改内核层的 VPN（PPP / PPTP / L2TP / TUN）
-          KERNEL_CFG="configs/boards/${TNAME}/kernel-3.4.x.config"
-          if [ -f "$KERNEL_CFG" ]; then
-            # 删除可能已存在的行（防止冲突）
-            sed -i '/CONFIG_PPP/d'   "$KERNEL_CFG"
-            sed -i '/CONFIG_PPTP/d'  "$KERNEL_CFG"
-            sed -i '/CONFIG_L2TP/d' "$KERNEL_CFG"
-            sed -i '/CONFIG_TUN/d'   "$KERNEL_CFG"
+          # ---- c) 关闭内核层 VPN 选项（PPP / PPTP / L2TP / TUN） ----
+          kernel_cfg="configs/boards/${TNAME}/kernel-3.4.x.config"
+          # 删除可能已经存在的行，防止冲突
+          sed -i '/CONFIG_PPP/d'   "$kernel_cfg"
+          sed -i '/CONFIG_PPTP/d'  "$kernel_cfg"
+          sed -i '/CONFIG_L2TP/d' "$kernel_cfg"
+          sed -i '/CONFIG_TUN/d'   "$kernel_cfg"
 
-            # **显式写 n**（即使原文件里根本没有这些行也会新增）
-            echo "CONFIG_PPP=n"        >> "$KERNEL_CFG"
-            echo "CONFIG_PPP_MPPE=n"   >> "$KERNEL_CFG"
-            echo "CONFIG_PPTP=n"       >> "$KERNEL_CFG"
-            echo "CONFIG_L2TP=n"        >> "$KERNEL_CFG"
-            echo "CONFIG_TUN=n"        >> "$KERNEL_CFG"
+          # 显式写 n（即使文件本来没有这些行也会创建）
+          {
+            echo "CONFIG_PPP=n"
+            echo "CONFIG_PPP_MPPE=n"
+            echo "CONFIG_PPTP=n"
+            echo "CONFIG_L2TP=n"
+            echo "CONFIG_TUN=n"
+          } >> "$kernel_cfg"
 
-            # 让 Padavan 正式使用我们编辑后的文件（复制成默认名字）
-            cp "$KERNEL_CFG" "configs/boards/${TNAME}/kernel_config"
+          # Padavan 在 make linux 前会读取 `kernel_config`，所以拷贝一下
+          cp "$kernel_cfg" "configs/boards/${TNAME}/kernel_config"
+
+      # -----------------------------------------------------------------
+      # 5️⃣ 前置检查：确保所有 VPN 项均为 =n（只匹配 =y 才报错）
+      # -----------------------------------------------------------------
+      - name: Pre‑build VPN sanity check
+        run: |
+          cd rt-n56u/trunk
+          echo "=== 检查 .config 中是否仍有 =y 的 VPN 项目 ==="
+          if grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)=y' .config; then
+            echo "❌ .config 里还有 VPN 选项被设为 y！请检查上一步的 sed。"
+            exit 1
+          else
+            echo "✅ .config 已全部是 n"
           fi
 
-      # ------------------------------------------------------------
-      # 4️⃣ Pre‑build sanity check (fail fast if any =y remains)
-      # ------------------------------------------------------------
-      - name: Pre‑build VPN config sanity check
-        env:
-          TNAME: YK-L1
-        run: |
-          cd /opt/rt-n56u/trunk
-          echo "=== Pre‑build .config VPN check ==="
-          grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|RPL2TP|SOFTETHERVPN)=y' .config && \
-            { echo "❌ VPN option still set to y in .config!"; exit 1; } || \
-            echo "✅ .config 已全部是 n"
-
-          echo "=== Pre‑build kernel_config VPN check ==="
-          grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)=y' "configs/boards/${TNAME}/kernel_config" && \
-            { echo "❌ Kernel VPN flag still y!"; exit 1; } || \
+          echo "=== 检查 kernel_config 中是否仍有 =y 的内核 VPN 项目 ==="
+          if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)=y' "configs/boards/${TNAME}/kernel_config"; then
+            echo "❌ kernel_config 里还有 VPN 选项被设为 y！"
+            exit 1
+          else
             echo "✅ kernel_config 已全部是 n"
+          fi
 
-      # ------------------------------------------------------------
-      # 5️⃣ Apply kernel config changes (silentoldconfig) – guarantees dependent options are cleared
-      # ------------------------------------------------------------
+      # -----------------------------------------------------------------
+      # 6️⃣ 让内核配置生效：使用 Kconfig‑conf 的 silentoldconfig
+      # -----------------------------------------------------------------
       - name: Apply kernel config changes (silentoldconfig)
         run: |
-         cd /opt/rt-n56u/trunk
+          cd rt-n56u/trunk
 
-         cp "configs/boards/${{ env.TNAME }}/kernel_config" "linux-3.4.x/.config"
+          # 把我们编辑好的 kernel_config 复制为 .config（Padavan 读取此文件）
+          cp "configs/boards/${TNAME}/kernel_config" "linux-3.4.x/.config"
 
-         ARCH=mips \
-         CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
-         ./linux-3.4.x/scripts/kconfig/conf --silentoldconfig linux-3.4.x/.config
+          # 运行 silentoldconfig，使 =n 真正写入 .config（不会弹交互）
+          ARCH=mips \
+          CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
+          ./linux-3.4.x/scripts/kconfig/conf --silentoldconfig linux-3.4.x/.config
 
+          # 最后再次确认内核层的 VPN 选项已经是 n
+          if grep -E 'CONFIG_(PPP|PPTP|L2TP|TUN)=y' linux-3.4.x/.config; then
+            echo "❌ silentoldconfig 后仍有 VPN 选项为 y！"
+            exit 1
+          else
+            echo "✅ silentoldconfig 完成，内核 VPN 项全部是 n"
+          fi
 
-      # ------------------------------------------------------------
-      # 6️⃣ Clean any previous build artefacts (clear_tree)
-      # ------------------------------------------------------------
-      - name: Clean previous build
+      # -----------------------------------------------------------------
+      # 7️⃣ 清理旧的编译产物（clear_tree 脚本）
+      # -----------------------------------------------------------------
+      - name: Clean previous build artefacts
         run: |
-          cd /opt/rt-n56u/trunk
+          cd rt-n56u/trunk
           chmod +x clear_tree
           ./clear_tree
 
-      # ------------------------------------------------------------
-      # 7️⃣ Build the firmware (must run under fakeroot)
-      # ------------------------------------------------------------
+      # -----------------------------------------------------------------
+      # 8️⃣ 正式编译（必须在 fakeroot 环境下）
+      # -----------------------------------------------------------------
       - name: Build firmware (no VPN)
         env:
-          TNAME: YK-L1
+          TNAME: ${{ env.TNAME }}
         run: |
-          cd /opt/rt-n56u/trunk
+          cd rt-n56u/trunk
           chmod +x build_firmware_modify
-          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release (no debug)
+          fakeroot ./build_firmware_modify $TNAME 0   # 0 = release  (不带 debug)
 
-      # ------------------------------------------------------------
-      # 8️⃣ (Optional) Remove any VPN binaries / kernel modules
-      # ------------------------------------------------------------
-      - name: Remove any VPN binaries or kernel modules from the image (just in case)
+      # -----------------------------------------------------------------
+      # 9️⃣ （可选）再次删除可能残留的 VPN 可执行文件和内核模块
+      # -----------------------------------------------------------------
+      - name: Remove any VPN binaries / kernel modules from the image (defensive)
         run: |
-          # 删除用户空间可执行文件
-          find /opt/rt-n56u/trunk/images -type f \
-            \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" -o -iname "*ppp*" -o -iname "*tun*" \) \
-            -exec rm -f {} +
+          # 用户空间二进制
+          find rt-n56u/trunk/images -type f \
+            \( -iname "*openvpn*" -o -iname "*pptp*" -o -iname "*l2tp*" \
+               -o -iname "*ppp*" -o -iname "*tun*" \) -exec rm -f {} +
 
-          # 删除已经编译进镜像的内核模块文件 (*.ko)
-          find /opt/rt-n56u/trunk/images -name "*.ko" -type f -exec rm -f {} +
+          # 可能已经被编进固件的内核模块 (*.ko)
+          find rt-n56u/trunk/images -name "*.ko" -type f -exec rm -f {} +
 
-      # ------------------------------------------------------------
-      # 9️⃣ Collect the generated *.trx file (absolute path)
-      # ------------------------------------------------------------
+      # -----------------------------------------------------------------
+      # 10️⃣ 把生成的 *.trx 复制到绝对路径的 /opt/images/ 目录
+      # -----------------------------------------------------------------
       - name: Collect built firmware
         run: |
           mkdir -p /opt/images
-          cp -f /opt/rt-n56u/trunk/images/*.trx /opt/images/
+          cp -f rt-n56u/trunk/images/*.trx /opt/images/
 
-      # ------------------------------------------------------------
-      # 🔟 Upload the artefact
-      # ------------------------------------------------------------
+      # -----------------------------------------------------------------
+      # 11️⃣ 上传 artifact（供下载、后续使用）
+      # -----------------------------------------------------------------
       - name: Upload firmware artefact
         uses: actions/upload-artifact@v4
         with:
@@ -187,17 +197,17 @@ jobs:
           path: /opt/images/*.trx
           if-no-files-found: error
 
-      # ------------------------------------------------------------
-      # 🔍 Post‑build verify VPN really disabled (final safety)
-      # ------------------------------------------------------------
-      - name: Post‑build verify VPN really disabled
+      # -----------------------------------------------------------------
+      # 12️⃣ 生成后再次检查 .trx 是否完全没有 VPN 关键字（最终安全保险）
+      # -----------------------------------------------------------------
+      - name: Post‑build VPN verification (strings)
         run: |
           for f in /opt/images/*.trx; do
             echo "=== 检查 $f 是否仍包含 VPN 关键字 ==="
             if strings "$f" | grep -i -E 'openvpn|pptp|l2tp|ppp|tun'; then
-              echo "❌ $f 仍然包含 VPN 相关字样！"
+              echo "❌ $f 中仍然出现 VPN 关键字！CI 将失败。"
               exit 1
             else
-              echo "✅ $f 中未发现 VPN 关键字"
+              echo "✅ $f 中未发现任何 VPN 关键字"
             fi
           done
