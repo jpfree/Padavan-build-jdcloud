@@ -93,20 +93,23 @@ jobs:
         # 清理之前的构建
         sudo ./clear_tree
         
-        # 【关键修复步骤】
-        # clear_tree 会清理掉 linux-3.4.x/.config 和生成的配置
-        # 我们需要重新复制配置并生成 auto.conf，防止后续 make linux 触发 silentoldconfig
+        # 【关键修复步骤 - 最终版】
+        # 1. 重新复制配置到内核目录
         cp -f .config linux-3.4.x/.config
         
-        # 进入内核目录，运行 olddefconfig 生成所有必需文件 (包括 auto.conf)
-        # 使用 yes 命令自动回答所有提示为默认值 (虽然 olddefconfig 不应该有提示)
+        # 2. 直接进入内核目录，使用 scripts/kconfig/conf 工具手动执行 olddefconfig
+        #    这避免了使用可能受污染的 'make olddefconfig' 目标
         cd linux-3.4.x
-        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- olddefconfig
+        scripts/kconfig/conf --olddefconfig Kconfig
         cd ..
         
+        # 3. 验证 auto.conf 是否生成 (可选，用于调试)
+        if [ ! -f linux-3.4.x/include/config/auto.conf ]; then
+            echo "Error: auto.conf was not generated!"
+            exit 1
+        fi
+
         # 开始编译
-        # 此时 include/config/auto.conf 已存在，理论上不会再次触发 silentoldconfig
-        # 但如果 build_firmware_modify 内部的 make linux 依然触发，可能需要更深入的补丁
         sudo ./build_firmware_modify $TNAME 0
         sudo mv -f images/*.trx /opt/images/
 
