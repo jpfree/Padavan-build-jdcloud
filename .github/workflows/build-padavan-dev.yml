@@ -32,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install \
-            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakerroot \
+            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
             cpio git python3-docutils gettext automake autopoint texinfo \
             build-essential help2man pkg-config \
             zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
@@ -55,7 +55,7 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 4️⃣ 生成 .config 并强制关闭所有不需要的组件（包括 OpenVPN 及其关联插件）
+      # 4️⃣ 生成 .config 并强制关闭所有不需要的插件（包括 OpenVPN 及其关联组件）
       # ------------------------------------------------------------
       - name: Build Firmware (no‑VPN)
         env:
@@ -72,8 +72,8 @@ jobs:
           fi
           cp -f configs/templates/$TNAME.config .config
 
-          # ② 将所有可能拉进 OpenVPN 的选项全部设为 n
-          #    （包括我们之前在脚本里遗漏的插件，如 skipdbv2、xtun 等）
+          # ② 把所有可能拉进 OpenVPN 的选项全部设为 n
+          #    包括我们之前遗漏的 skipdbv2、xtun 等
           for opt in \
             OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
             SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
@@ -81,32 +81,34 @@ jobs:
             sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
           done
 
-          # ③ 统一剔除其余所有我们不想要的插件（一次性写成 =n，防止遗漏）
-          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY \
-                   LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD \
-                   FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR"
+          # ③ 统一剔除其余所有不需要的插件（一次性写成 =n，防止遗漏）
+          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE \
+                   ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 \
+                   FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW \
+                   ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO \
+                   IPERF3 MTR"
           for p in $PLUGINS; do
             sed -i "/CONFIG_FIRMWARE_INCLUDE_${p}/d" .config
             echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
           done
 
-          # 文件系统 / 网络 选项（同样写成 =n）
+          # ---- 文件系统 / 基础库（全部置 n）----
           for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
             sed -i "/CONFIG_FIRMWARE_ENABLE_${opt}/d" .config
             echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
           done
 
-          # ④ 必要的 SSL‑EXE（必须保持打开）
+          # ---- 必须保留的 SSL‑EXE ----
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
 
-          # ⑤ 将 .config 复制到内核目录（防止 “Configuration file .config not found”）
+          # ---- 将 .config 复制到内核目录，防止 “.config not found” ----
           cp .config linux-3.4.x/.config
 
-          # ⑥ 清理旧产物并正式编译（不再对 user/Makefile 做任何手动修改）
+          # ---- 清理旧产物并正式编译（不再修改 user/Makefile）----
           sudo ./clear_tree
           sudo make V=1 -j$(nproc)
 
-          # ⑦ 编译结束后搬运固件（若仍未生成 .trx，则不报错，后续 upload‑artifact 会捕获错误）
+          # ---- 编译结束后搬运固件（若未生成 .trx 则不报错）----
           sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
 
       # ------------------------------------------------------------
