@@ -93,11 +93,11 @@ jobs:
         # 清理之前的构建
         sudo ./clear_tree
         
-        # 【修复】在清理后，修改内核 Makefile，将 silentoldconfig 改为 olddefconfig
-        # 方法 1: 修改 scripts/kconfig/Makefile
-        sed -i 's/--silentoldconfig/--olddefconfig/g' linux-3.4.x/scripts/kconfig/Makefile
-        # 方法 2: 同时修改 linux-3.4.x/Makefile 中调用的地方 (如果有)
-        sed -i 's/silentoldconfig/olddefconfig/g' linux-3.4.x/Makefile
+        # 【修复】关键步骤：在清理后，直接进入内核目录运行 olddefconfig 生成 auto.conf
+        # 这样后续调用 make linux 时就不会再触发 silentoldconfig 交互
+        cd linux-3.4.x
+        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- olddefconfig
+        cd ..
         
         # 开始编译
         sudo ./build_firmware_modify $TNAME 0
