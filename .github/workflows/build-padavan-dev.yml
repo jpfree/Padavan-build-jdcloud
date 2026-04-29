@@ -1,11 +1,13 @@
 # ------------------------------------------------------------
-# Padavan 编译工作流（彻底剔除 OpenVPN、skipdbv2、xTun 等插件）
-# 修正点：fakeroot 拼写已确认为 fakeroot (无多余字符)
+# Padavan 编译工作流 (最终修正版)
+# 修正点: 
+# 1. fakeroot 拼写确认为 f-a-k-e-r-o-o-t
+# 2. 在 clear_tree 之前删除问题目录 (防止 clear_tree 报错)
+# 3. 在 clear_tree 之后再次确认并修复 user/Makefile
 # ------------------------------------------------------------
 name: Build Padavan dev
-
 on:
-  workflow_dispatch: # 手动点击 Run workflow
+  workflow_dispatch:
   release:
     types: [published]
   push:
@@ -17,20 +19,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 只允许仓库所有者自己触发，防止他人滥用
     if: github.event.repository.owner.id == github.event.sender.id
-
     steps:
-      # ----------------------------------------------------
-      # 1️⃣ 检出代码
-      # ----------------------------------------------------
+      # 1. 检出代码
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ----------------------------------------------------
-      # 2️⃣ 安装编译所需依赖
-      # 重点修正：fakeroot (正确拼写: f-a-k-e-r-o-o-t)
-      # ----------------------------------------------------
+      # 2. 安装依赖 (fakerroot -> fakeroot)
       - name: Install build environment
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -43,121 +38,74 @@ jobs:
             zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
             liblz4-dev
 
-      # ----------------------------------------------------
-      # 3️⃣ 拉取 Padavan 源码并准备交叉编译链
-      # ----------------------------------------------------
+      # 3. 拉取源码
       - name: Clone Padavan source
         env:
-          KERNEL: 3.4 # 如需 4.4 改成 4.4
+          KERNEL: 3.4
         run: |
           if [ "$KERNEL" = "4.4" ]; then
             git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
           else
             git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
           fi
-          # 下载交叉工具链
           cd /opt/rt-n56u/toolchain-mipsel
           sh dl_toolchain.sh
           mkdir -p /opt/images/
 
-      # ----------------------------------------------------
-      # 4️⃣ 删除所有我们根本不想编译的插件目录
-      # (避免 clear_tree/clean 进入不存在的 Makefile)
-      # ----------------------------------------------------
-      - name: Remove unwanted plugin directories
+      # 4. 【关键】在 clear_tree 之前先删除问题目录
+      # 这样 clear_tree 就不会尝试去 clean 这些没有 Makefile 的目录
+      - name: Remove problematic dirs BEFORE clear_tree
         run: |
           cd /opt/rt-n56u/trunk
-          rm -rf user/openvpn user/skipdbv2 user/xTun
+          rm -rf user/openvpn user/skipdbv2 user/xTun user/smartdns user/redsocks
 
-      # ----------------------------------------------------
-      # 5️⃣ 生成 .config 并一次性把所有不需要的插件设为 n
-      # ----------------------------------------------------
-      - name: Prepare .config (disable VPN & all unwanted plugins)
+      # 5. 生成 .config (禁用插件)
+      - name: Prepare .config
         env:
-          TNAME: YK-L1 # 请按实际型号修改
+          TNAME: YK-L1
           KERNEL: 3.4
         run: |
-          set -e
           cd /opt/rt-n56u/trunk
-
-          # ① 复制官方模板
-          if [ ! -f configs/templates/$TNAME.config ]; then
-            echo "模板 configs/templates/$TNAME.config 未找到"
-            exit 1
-          fi
           cp -f configs/templates/$TNAME.config .config
-
-          # ② 禁用所有会把 OpenVPN 拉进来的选项
-          for opt in \
-            OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
-            SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
-            SKIPDBV2 XTUN ; do
-            if grep -q "^CONFIG_FIRMWARE_INCLUDE_${opt}=" .config; then
-              sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config
-            else
-              echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
-            fi
+          # 禁用所有相关选项
+          for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
+            sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
           done
-
-          # ③ 剔除其余所有我们不想要的插件（一次写成 =n，防止遗漏）
-          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE \
-            ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 \
-            FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW \
-            ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO \
-            IPERF3 MTR"
-          for p in $PLUGINS; do
-            if grep -q "^CONFIG_FIRMWARE_INCLUDE_${p}=" .config; then
-              sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config
-            else
-              echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
-            fi
-          done
-
-          # ---- 文件系统 / 基础库（全部置 n）----
-          for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
-            if grep -q "^CONFIG_FIRMWARE_ENABLE_${opt}=" .config; then
-              sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config
-            else
-              echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
-            fi
-          done
-
-          # ---- 必须保留的 OpenSSL‑EXE（否则会报缺失）----
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
-
-          # --------------------------------------------------
-          # 把 .config 复制到内核目录（防止 “.config not found”）
-          # --------------------------------------------------
+          echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
           cp .config linux-3.4.x/.config
 
-      # ----------------------------------------------------
-      # 6️⃣ 清理旧产物（对 libssl 的 distclean 错误做容忍）
-      # ----------------------------------------------------
+      # 6. 清理旧产物 (此时已没有问题目录，不会报错)
       - name: Clean old build artefacts
         run: |
           cd /opt/rt-n56u/trunk
-          # clear_tree 会调用 libssl 的 distclean（不存在），所以用 || true 忽略错误
           sudo ./clear_tree || true
 
-      # ----------------------------------------------------
-      # 7️⃣ 正式编译（此时已经没有 openvpn / skipdbv2 / xTun 目录）
-      # ----------------------------------------------------
-      - name: Build Padavan firmware
+      # 7. 【双重保险】clear_tree 后再次修复 user/Makefile
+      - name: Fix user/Makefile after clear_tree
+        run: |
+          cd /opt/rt-n56u/trunk
+          # 确保这些目录在 user/Makefile 中被列入 dir_n
+          for d in openvpn skipdbv2 xTun smartdns redsocks; do
+            sed -i "/^dir_y += $d/d" user/Makefile || true
+            if ! grep -q "^dir_n += $d" user/Makefile; then
+              echo "dir_n += $d" >> user/Makefile
+            fi
+          done
+
+      # 8. 编译
+      - name: Build Firmware
         run: |
           cd /opt/rt-n56u/trunk
           sudo make V=1 -j$(nproc)
 
-      # ----------------------------------------------------
-      # 8️⃣ 把生成的 *.trx 固件搬到统一目录，供后面的 artifact 收集
-      # ----------------------------------------------------
-      - name: Collect firmware files
+      # 9. 收集产物
+      - name: Collect firmware
         run: |
           sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
 
-      # ----------------------------------------------------
-      # 9️⃣ 上传编译产物（若没有 .trx 会直接报错）
-      # ----------------------------------------------------
-      - name: Upload Padavan firmware
+      # 10. 上传
+      - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
           name: Padavan-${{ env.TNAME }}-dev
