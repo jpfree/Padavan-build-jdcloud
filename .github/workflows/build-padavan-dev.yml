@@ -1,111 +1,52 @@
-name: Build Padavan dev
-on:
-  workflow_dispatch:
-  release:
-    types: [published]
-  push:
-    tags: ['v*']
-  watch:
-    types: [started]
+- name: Build Firmware (no-VPN)
+  env:
+    TNAME: YK-L1
+    KERNEL: 3.4
+  run: |
+    set -e
+    cd /opt/rt-n56u/trunk
 
-jobs:
-  build:
-    runs-on: ubuntu-22.04
-    if: github.event.repository.owner.id == github.event.sender.id
-    steps:
-      # 1️⃣ 检出代码
-      - name: Checkout
-        uses: actions/checkout@v4
+    # ① 复制模板
+    if [ ! -f configs/templates/$TNAME.config ]; then
+      echo "configs/templates/$TNAME.config not found"
+      exit 1
+    fi
+    cp -f configs/templates/$TNAME.config .config
 
-      # 2️⃣ 安装依赖 (修正 fakeroot 拼写，添加 liblz4-dev)
-      - name: Installation environment
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install \
-            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
-            cpio git python3-docutils gettext automake autopoint texinfo \
-            build-essential help2man pkg-config \
-            zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
-            liblz4-dev
+    # ② 强制关闭所有 VPN 相关开关
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' .config
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' .config
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SSSERVER=.*/CONFIG_FIRMWARE_INCLUDE_SSSERVER=n/' .config
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' .config
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n/' .config
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' .config
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' .config
 
-      # 3️⃣ 克隆源码与工具链
-      - name: Clone source code
-        env:
-          KERNEL: 3.4
-        run: |
-          if [ "$KERNEL" = "4.4" ]; then
-            git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
-          else
-            git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
-          fi
-          cd /opt/rt-n56u/toolchain-mipsel
-          sh dl_toolchain.sh
-          mkdir -p /opt/images
+    # ③ 剔除不想要的插件
+    for p in MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR; do
+      sed -i "/CONFIG_FIRMWARE_INCLUDE_$p/d" .config
+      echo "CONFIG_FIRMWARE_INCLUDE_$p=n" >> .config
+    done
 
-      # 4️⃣ 配置与编译
-      - name: Build Firmware (no-VPN)
-        env:
-          TNAME: YK-L1
-          KERNEL: 3.4
-        run: |
-          set -e
-          cd /opt/rt-n56u/trunk
+    # 文件系统/网络
+    for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+      sed -i "/CONFIG_FIRMWARE_ENABLE_$opt/d" .config
+      echo "CONFIG_FIRMWARE_ENABLE_$opt=n" >> .config
+    done
 
-          # ① 复制并准备 .config
-          if [ ! -f configs/templates/$TNAME.config ]; then
-            echo "configs/templates/$TNAME.config not found"
-            exit 1
-          fi
-          cp -f configs/templates/$TNAME.config .config
+    # ④ 开启 SSL-EXE
+    sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
 
-          # ② 强制关闭所有 VPN 相关开关
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SSSERVER=.*/CONFIG_FIRMWARE_INCLUDE_SSSERVER=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' .config
+    # ⑤ 将 .config 复制到内核目录
+    cp .config linux-3.4.x/.config
 
-          # ③ 剔除不想要的插件 (删除行 -> 追加 =n)
-          # 插件列表
-          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR"
-          for p in $PLUGINS; do
-            sed -i "/CONFIG_FIRMWARE_INCLUDE_$p/d" .config
-            echo "CONFIG_FIRMWARE_INCLUDE_$p=n" >> .config
-          done
+    # ⑥ 在 user/Makefile 中强制剔除 openvpn
+    sed -i '/^dir_n += openvpn/d' user/Makefile
+    echo 'dir_n += openvpn' >> user/Makefile
 
-          # 文件系统/网络相关 (同上逻辑)
-          for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
-            sed -i "/CONFIG_FIRMWARE_ENABLE_$opt/d" .config
-            sed -i "/CONFIG_FIRMWARE_INCLUDE_$opt/d" .config
-            echo "CONFIG_FIRMWARE_ENABLE_$opt=n" >> .config
-            echo "CONFIG_FIRMWARE_INCLUDE_$opt=n" >> .config
-          done
+    # ⑦ 清理并正式编译
+    sudo ./clear_tree
+    sudo make V=1 -j$(nproc)
 
-          # ④ 开启必需的 SSL-EXE
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
-
-          # ⑤ 【关键修正】将 .config 复制到内核目录，解决 "Configuration file .config not found" 报错
-          cp .config linux-3.4.x/.config
-
-          # ⑥ 【绝招】物理剔除 openvpn 构建目录 (防止被 SHADOWSOCKS 强制拉入)
-          sed -i '/^dir_n += openvpn/d' user/Makefile
-          echo 'dir_n += openvpn' >> user/Makefile
-
-          # ⑦ 清理并编译
-          sudo ./clear_tree
-          sudo make V=1 -j$(nproc)
-
-          # ⑧ 收集产物
-          sudo mv -f images/*.trx /opt/images/
-
-      # 5️⃣ 上传固件
-      - name: Upload packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: Padavan-${{ env.TNAME }}-dev
-          path: /opt/images/*.trx
-          if-no-files-found: error
+    # ⑧ 收集固件（编译完成后才 mv，mv 找不到文件时忽略错误）
+    sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
