@@ -1,17 +1,10 @@
-# 修改 TNAME: K2P 中的 K2P 为你需要编译的型号，注意名称要与 configs/templates/ 目录下的名字相同
 name: Build Padavan dev
-
 on:
   workflow_dispatch:
   release:
     types: [published]
   push:
-    tags:
-      - 'v*'
-  # branches:
-  # - dev
-  # schedule:
-  # - cron: 0 8 * * 5
+    tags: ['v*']
   watch:
     types: [started]
 
@@ -19,18 +12,13 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     if: github.event.repository.owner.id == github.event.sender.id
-
     steps:
-      # ------------------------------------------------------------
       # 1️⃣ 检出代码
-      # ------------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # 2️⃣ 安装全部编译依赖
-      # ------------------------------------------------------------
-      - name: Installation
+      # 2️⃣ 安装依赖 (修正 fakeroot 拼写，添加 liblz4-dev)
+      - name: Installation environment
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -42,9 +30,7 @@ jobs:
             zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
             liblz4-dev
 
-      # ------------------------------------------------------------
-      # 3️⃣ 下载 Padavan 源码并准备交叉编译链
-      # ------------------------------------------------------------
+      # 3️⃣ 克隆源码与工具链
       - name: Clone source code
         env:
           KERNEL: 3.4
@@ -56,12 +42,10 @@ jobs:
           fi
           cd /opt/rt-n56u/toolchain-mipsel
           sh dl_toolchain.sh
-          mkdir -p /opt/images/
+          mkdir -p /opt/images
 
-      # ------------------------------------------------------------
-      # 4️⃣ 生成 .config 并强制关闭所有会把 OpenVPN 拉进来的选项
-      # ------------------------------------------------------------
-      - name: Build Firmware
+      # 4️⃣ 配置与编译
+      - name: Build Firmware (no-VPN)
         env:
           TNAME: YK-L1
           KERNEL: 3.4
@@ -69,14 +53,14 @@ jobs:
           set -e
           cd /opt/rt-n56u/trunk
 
-          # ① 复制模板
+          # ① 复制并准备 .config
           if [ ! -f configs/templates/$TNAME.config ]; then
             echo "configs/templates/$TNAME.config not found"
             exit 1
           fi
           cp -f configs/templates/$TNAME.config .config
 
-          # ② 把所有可能触发 openvpn 的选项写成 n
+          # ② 强制关闭所有 VPN 相关开关
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' .config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' .config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SSSERVER=.*/CONFIG_FIRMWARE_INCLUDE_SSSERVER=n/' .config
@@ -85,117 +69,40 @@ jobs:
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' .config
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' .config
 
-          # ③ 删除其它不想要的插件（不再追加 SRELAY，因为下面已统一追加）
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_DNSFORWARDER/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ADBYBY/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FRPC/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FRPS/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_TUNSAFE/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ALIDDNS/d' .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMARTDNS/d' .config
+          # ③ 剔除不想要的插件 (删除行 -> 追加 =n)
+          # 插件列表
+          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR"
+          for p in $PLUGINS; do
+            sed -i "/CONFIG_FIRMWARE_INCLUDE_$p/d" .config
+            echo "CONFIG_FIRMWARE_INCLUDE_$p=n" >> .config
+          done
 
-          # ---- 文件系统 / 基础库 ---------------------------------
-          sed -i '/CONFIG_FIRMWARE_ENABLE_FAT/d' .config
-          echo "CONFIG_FIRMWARE_ENABLE_FAT=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_ENABLE_EXT2/d' .config
-          echo "CONFIG_FIRMWARE_ENABLE_EXT2=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_ENABLE_EXT3/d' .config
-          echo "CONFIG_FIRMWARE_ENABLE_EXT3=n" >> .config
+          # 文件系统/网络相关 (同上逻辑)
+          for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+            sed -i "/CONFIG_FIRMWARE_ENABLE_$opt/d" .config
+            sed -i "/CONFIG_FIRMWARE_INCLUDE_$opt/d" .config
+            echo "CONFIG_FIRMWARE_ENABLE_$opt=n" >> .config
+            echo "CONFIG_FIRMWARE_INCLUDE_$opt=n" >> .config
+          done
 
-          # ---- 网络 / 防火墙 ---------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_IPSET/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_IPSET=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSD/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_NFSD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSC/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_NFSC=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_CIFS/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_CIFS=n" >> .config
-
-          # ---- 打印 / 调试工具 ------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_LPRD/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_LPRD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_TCPDUMP/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_TCPDUMP=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_HDPARM/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_HDPARM=n" >> .config
-
-          # ---- Samba / FTP -----------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_SMBD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD36/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_SMBD36=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FTPD/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_FTPD=n" >> .config
-
-          # ---- 认证 / 加密 -----------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_EAP_PEAP/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_EAP_PEAP=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_DDNS_SSL/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_DDNS_SSL=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC=n" >> .config
-
-          # ---- XUPnPd -----------------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_XUPNPD/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_XUPNPD=n" >> .config
-
-          # ---- 多媒体 -----------------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FFMPEG_NEW/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_FFMPEG_NEW=n" >> .config
-
-          # ---- Aria2 -----------------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_ARIA=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL=n" >> .config
-
-          # ---- 其他实用工具 -----------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_DOGCOM/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_DOGCOM=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_VLMCSD/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_VLMCSD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_TTYD/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_TTYD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_HTOP/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_HTOP=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_NANO/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_NANO=n" >> .config
-
-          # ---- 网络测速 / 路由监控 ----------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_IPERF3/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_IPERF3=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_MTR/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_MTR=n" >> .config
-
-          # ---- SRELAY（统一追加）------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SRELAY/d' .config
-          echo "CONFIG_FIRMWARE_INCLUDE_SRELAY=n" >> .config
-
-          # ④ 打开 SSL‑EXE
+          # ④ 开启必需的 SSL-EXE
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
 
-          # ⑤（可选）调试打印
-          echo "=== .config 中的 VPN 开关（应全部为 n）==="
-          grep -E 'CONFIG_FIRMWARE_INCLUDE_(OPENVPN|SHADOWSOCKS|SSSERVER|RPL2TP|SOFTETHERVPN)' .config \
-            || echo "(none – all are n)"
+          # ⑤ 【关键修正】将 .config 复制到内核目录，解决 "Configuration file .config not found" 报错
+          cp .config linux-3.4.x/.config
 
-          # ⑥ 强制把 openvpn 踢出编译目录（直接改 user/Makefile）
+          # ⑥ 【绝招】物理剔除 openvpn 构建目录 (防止被 SHADOWSOCKS 强制拉入)
           sed -i '/^dir_n += openvpn/d' user/Makefile
           echo 'dir_n += openvpn' >> user/Makefile
 
-          # ⑦ 清理旧产物并正式编译
+          # ⑦ 清理并编译
           sudo ./clear_tree
           sudo make V=1 -j$(nproc)
 
-          # ⑧ 收集固件到 /opt/images
+          # ⑧ 收集产物
           sudo mv -f images/*.trx /opt/images/
 
-      # ------------------------------------------------------------
-      # 5️⃣ 上传编译好的固件
-      # ------------------------------------------------------------
+      # 5️⃣ 上传固件
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
