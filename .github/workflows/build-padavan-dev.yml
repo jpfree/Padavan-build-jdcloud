@@ -1,4 +1,6 @@
-# 修改 TNAME: K2P 中的 K2P 为你需要编译的型号，注意名称要与 configs/templates/ 目录下的名字相同
+# ------------------------------------------------------------
+# GitHub Actions – Padavan 编译（无 VPN、无多余插件）
+# ------------------------------------------------------------
 name: Build Padavan dev
 
 on:
@@ -14,19 +16,20 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
+    # 只允许仓库拥有者自己触发，防止他人滥用
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
-      # ------------------------------------------------------------
+      # ------------------------------------------------------
       # 1️⃣ 检出代码
-      # ------------------------------------------------------------
+      # ------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
-      # ------------------------------------------------------------
-      # 2️⃣ 安装全部编译依赖（已改正 fakeroot 拼写，添加 liblz4-dev）
-      # ------------------------------------------------------------
-      - name: Installation
+      # ------------------------------------------------------
+      # 2️⃣ 安装全部编译依赖（已把 fakeroot 拼写纠正，加入 liblz4-dev）
+      # ------------------------------------------------------
+      - name: Install build environment
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -38,28 +41,29 @@ jobs:
             zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
             liblz4-dev
 
-      # ------------------------------------------------------------
-      # 3️⃣ 下载 Padavan 源码并准备交叉编译链
-      # ------------------------------------------------------------
-      - name: Clone source code
+      # ------------------------------------------------------
+      # 3️⃣ 拉取 Padavan 源码并准备交叉编译链
+      # ------------------------------------------------------
+      - name: Clone Padavan source
         env:
-          KERNEL: 3.4
+          KERNEL: 3.4               # 如需 4.4 改为 4.4
         run: |
           if [ "$KERNEL" = "4.4" ]; then
             git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
           else
             git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
           fi
+          # 下载交叉工具链
           cd /opt/rt-n56u/toolchain-mipsel
           sh dl_toolchain.sh
           mkdir -p /opt/images/
 
-      # ------------------------------------------------------------
-      # 4️⃣ 生成 .config 并一次性禁用所有会拉进 OpenVPN 的选项
-      # ------------------------------------------------------------
-      - name: Build Firmware (no‑VPN)
+      # ------------------------------------------------------
+      # 4️⃣ 生成 .config 并一次性关闭所有不需要的插件
+      # ------------------------------------------------------
+      - name: Prepare .config (disable VPN & all unwanted plugins)
         env:
-          TNAME: YK-L1
+          TNAME: YK-L1               # 根据实际型号修改
           KERNEL: 3.4
         run: |
           set -e
@@ -67,18 +71,16 @@ jobs:
 
           # ① 复制模板
           if [ ! -f configs/templates/$TNAME.config ]; then
-            echo "configs/templates/$TNAME.config not found"
+            echo "模板 configs/templates/$TNAME.config 不存在"
             exit 1
           fi
           cp -f configs/templates/$TNAME.config .config
 
-          # ② 一次性把所有 OpenVPN 相关选项写成 n
-          #    这一步会覆盖模板里原本为 y 的选项
+          # ② 将所有会把 OpenVPN 拉进来的选项全部设为 n
           for opt in \
                 OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
                 SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
                 SKIPDBV2 XTUN ; do
-            # 如果配置行不存在则直接追加，否则替换为 n
             if grep -q "^CONFIG_FIRMWARE_INCLUDE_${opt}=" .config; then
               sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config
             else
@@ -86,11 +88,12 @@ jobs:
             fi
           done
 
-          # ③ 统一剔除其余所有我们不想要的插件（一次性写成 =n）
+          # ③ 统一剔除其余所有我们不想要的插件（一次性写成 =n，防止遗漏）
           PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE \
                    ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 \
                    FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW \
-                   ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR"
+                   ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO \
+                   IPERF3 MTR"
           for p in $PLUGINS; do
             if grep -q "^CONFIG_FIRMWARE_INCLUDE_${p}=" .config; then
               sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config
@@ -99,7 +102,7 @@ jobs:
             fi
           done
 
-          # ---- 文件系统 / 基础库（全部写成 =n）----
+          # ---- 文件系统/基础库（全部置 n）----
           for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
             if grep -q "^CONFIG_FIRMWARE_ENABLE_${opt}=" .config; then
               sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config
@@ -108,23 +111,51 @@ jobs:
             fi
           done
 
-          # ④ 必须保留 SSL‑EXE（OpenSSL exe）——否则编译会报缺少 openssl‑exe
+          # ---- 必须保留的 SSL‑EXE（否则编译报错）----
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
 
-          # ⑤ 复制 .config 到内核目录（防止 “Configuration file .config not found” 错误）
+          # ----------------------------------------------------
+          # 复制 .config 到内核目录（防止 “.config not found”）
+          # ----------------------------------------------------
           cp .config linux-3.4.x/.config
 
-          # ⑥ 清理旧产物并正式编译（不再对 user/Makefile 做任何手动修改）
+          # ----------------------------------------------------
+          # 5️⃣ 清理旧产物
+          # ----------------------------------------------------
           sudo ./clear_tree
+
+          # ----------------------------------------------------
+          # 6️⃣ 剔除所有 *没有 Makefile* 的插件（包括 openvpn、skipdbv2、xtun）
+          # ----------------------------------------------------
+          # 先把可能已经在 dir_y 中的 openvpn/skipdbv2/xtun 移除
+          for d in openvpn skipdbv2 xtun; do
+            sed -i "/^dir_y += $d/d" user/Makefile || true
+            sed -i "/^dir_n += $d/d" user/Makefile || true
+          done
+          # 再把所有没有 Makefile 的子目录统一加入 dir_n
+          for d in $(ls user); do
+            if [ ! -f "user/$d/Makefile" ]; then
+              # 删除旧的 dir_y（防止残留）
+              sed -i "/^dir_y += $d/d" user/Makefile || true
+              # 确保加入 dir_n
+              grep -q "^dir_n += $d" user/Makefile || echo "dir_n += $d" >> user/Makefile
+            fi
+          done
+
+          # ----------------------------------------------------
+          # 7️⃣ 正式编译（不再对 user/Makefile 进行任何手动修改）
+          # ----------------------------------------------------
           sudo make V=1 -j$(nproc)
 
-          # ⑦ 编译结束后搬运固件（若仍未生成 .trx 则不报错，后面的 upload‑artifact 会捕获错误）
+          # ----------------------------------------------------
+          # 8️⃣ 把生成的固件搬到统一目录，供后面的 artifact 收集
+          # ----------------------------------------------------
           sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
 
-      # ------------------------------------------------------------
-      # 5️⃣ 上传编译好的固件（如果没有产物会直接报错）
-      # ------------------------------------------------------------
-      - name: Upload packages
+      # ------------------------------------------------------
+      # 9️⃣ 上传编译好的固件（若未生成 .trx 则直接报错）
+      # ------------------------------------------------------
+      - name: Upload Padavan firmware
         uses: actions/upload-artifact@v4
         with:
           name: Padavan-${{ env.TNAME }}-dev
