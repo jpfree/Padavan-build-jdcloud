@@ -1,16 +1,16 @@
-#修改TNAME: K2P 中的K2P为你需要编译的型号，注意名称要与configs/templates/目录下的名字相同
-name: Build  YK-L1 dev
+#修改 TNAME: K2P 中的 K2P 为你需要编译的型号，注意名称要与 configs/templates/目录下的名字相同
+name: Build YK-L1 dev
 
-on: 
+on:
   release:
     types: [published]
   push:
     tags:
-    - 'v*'
-  #  branches: 
-  #    - master
-#  schedule:
-#    - cron: 0 8 * * 5
+      - 'v*'
+  # branches:
+  #   - master
+  # schedule:
+  #   - cron: 0 8 * * 5
   watch:
     types: [started]
   workflow_dispatch:
@@ -19,10 +19,10 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     if: github.event.repository.owner.id == github.event.sender.id
-
     steps:
     - name: Checkout
       uses: actions/checkout@master
+
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
@@ -31,18 +31,20 @@ jobs:
         sudo apt-get -y install unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
         cpio git python3-docutils gettext automake autopoint texinfo build-essential help2man \
         pkg-config zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget
+
     - name: Clone source code
       env:
         KERNEL: 3.4
       run: |
         if [ $KERNEL = "4.4" ] ; then
-        git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
+          git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
         else
-        git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
+          git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
         fi
         cd /opt/rt-n56u/toolchain-mipsel
         sh dl_toolchain.sh
         mkdir -p /opt/images/
+
     - name: Build Firmware
       env:
         TNAME: YK-L1
@@ -50,49 +52,59 @@ jobs:
       run: |
         cd /opt/rt-n56u/trunk
         if [ ! -f configs/templates/$TNAME.config ] ; then
-        echo "configs/templates/$TNAME.config not found "
-        exit 1
+          echo "configs/templates/$TNAME.config not found "
+          exit 1
         fi
         cp -f configs/templates/$TNAME.config .config
-
+        
         # B2. 禁用核心 VPN 相关
-          for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN; do
-            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
-            echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
-          done
-          
-          # B3. 【补全】禁用其余所有插件 (防止依赖拉起)
-          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS"
-          for p in $PLUGINS; do
-            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config || true
-            echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
-          done
-
-          # B4. 禁用文件系统
-          for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
-            sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
-            echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
-          done
-          
-          # B5. 保留必要项
-          echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
-          
-          # B6. 同步到内核
-          cp .config linux-3.4.x/.config
-
-
+        for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN; do
+          sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
+          echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
+        done
+        
+        # B3. 【补全】禁用其余所有插件 (防止依赖拉起)
+        PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS"
+        for p in $PLUGINS; do
+          sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config || true
+          echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
+        done
+        
+        # B4. 禁用文件系统
+        for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+          sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
+          echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
+        done
+        
+        # B5. 保留必要项
+        echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
+        
+        # B6. 同步到内核
+        cp .config linux-3.4.x/.config
+        
         #########################################################################################
-        #自定义添加其它功能请参考源码configs/templates/目录下的config文件。按照上面的格式添加即可
+        #自定义添加其它功能请参考源码 configs/templates/目录下的 config 文件。按照上面的格式添加即可
         #格式如下：
         #sed -i '/自定义项/d' .config
         #echo "自定义项=y" >> .config
         #########################################################################################
+        
+        # 清理之前的构建
         sudo ./clear_tree
+        
+        # 【修复】在编译前先处理内核配置，避免 silentoldconfig 遇到新选项时报错
+        # 方法：进入内核目录，使用 olddefconfig 自动设置新选项为默认值
+        cd linux-3.4.x
+        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- olddefconfig
+        cd ..
+        
+        # 开始编译
         sudo ./build_firmware_modify $TNAME 0
         sudo mv -f images/*.trx /opt/images/
-    - name : Upload packages
+
+    - name: Upload packages
       uses: actions/upload-artifact@master
       if: always()
       with:
         name: Padavan-packages
-        path: /opt/images
+        path: /opt/images/
