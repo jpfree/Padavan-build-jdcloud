@@ -55,17 +55,31 @@ jobs:
         fi
         cp -f configs/templates/$TNAME.config .config
 
-        # 禁用所有不需要的插件配置
-          PLUGINS="OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS FAT EXT2 EXT3 IPSET NFSD NFSC CIFS"
-          
-          for opt in $PLUGINS; do
+        # B2. 禁用核心 VPN 相关
+          for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN; do
             sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
-            sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
             echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
+          done
+          
+          # B3. 【补全】禁用其余所有插件 (防止依赖拉起)
+          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS"
+          for p in $PLUGINS; do
+            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config || true
+            echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
+          done
+
+          # B4. 禁用文件系统
+          for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+            sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
             echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
           done
           
+          # B5. 保留必要项
           echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
+          
+          # B6. 同步到内核
+          #cp .config linux-3.4.x/.config
+
 
         #########################################################################################
         #自定义添加其它功能请参考源码configs/templates/目录下的config文件。按照上面的格式添加即可
