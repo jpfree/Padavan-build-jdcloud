@@ -1,4 +1,4 @@
-# 修改 TNAME: K2P 中的 K2P 为你需要编译的型号，注意名称要与 configs/templates/ 目录下的名字相同
+#修改 TNAME: K2P 中的 K2P 为你需要编译的型号，注意名称要与 configs/templates/目录下的名字相同
 name: Build YK-L1 dev
 
 on:
@@ -20,34 +20,23 @@ jobs:
     runs-on: ubuntu-22.04
     if: github.event.repository.owner.id == github.event.sender.id
     steps:
-    # ------------------------------------------------------------
-    # 1️⃣ Checkout
-    # ------------------------------------------------------------
     - name: Checkout
       uses: actions/checkout@master
 
-    # ------------------------------------------------------------
-    # 2️⃣ 环境准备（所有编译依赖）
-    # ------------------------------------------------------------
     - name: Initialization environment
       env:
         DEBIAN_FRONTEND: noninteractive
       run: |
         sudo apt-get update
-        sudo apt-get -y install unzip libtool-bin curl cmake gperf gawk flex bison \
-          nano xxd fakeroot cpio git python3-docutils gettext automake autopoint \
-          texinfo build-essential help2man pkg-config \
-          zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev \
-          wget
+        sudo apt-get -y install unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
+        cpio git python3-docutils gettext automake autopoint texinfo build-essential help2man \
+        pkg-config zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget
 
-    # ------------------------------------------------------------
-    # 3️⃣ 拉取 Padavan 源码并准备交叉工具链
-    # ------------------------------------------------------------
     - name: Clone source code
       env:
         KERNEL: 3.4
       run: |
-        if [ "$KERNEL" = "4.4" ]; then
+        if [ $KERNEL = "4.4" ] ; then
           git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
         else
           git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
@@ -56,85 +45,89 @@ jobs:
         sh dl_toolchain.sh
         mkdir -p /opt/images/
 
-    # ------------------------------------------------------------
-    # 4️⃣ 编译固件（关键步骤）
-    # ------------------------------------------------------------
     - name: Build Firmware
       env:
-        TNAME: YK-L1      # <-- 改成你自己的型号
+        TNAME: YK-L1
         KERNEL: 3.4
       run: |
-        set -e   # 任意一步出错则退出（除非我们显式关闭）
         cd /opt/rt-n56u/trunk
-
-        # ---------- 4.1 检查并拷贝模板配置 ----------
-        if [ ! -f configs/templates/$TNAME.config ]; then
-          echo "Error: configs/templates/$TNAME.config not found"
+        
+        # -------------------------------------------------
+        # 1️⃣ 读取并定制固件模板配置
+        # -------------------------------------------------
+        if [ ! -f configs/templates/$TNAME.config ] ; then
+          echo "configs/templates/$TNAME.config not found "
           exit 1
         fi
         cp -f configs/templates/$TNAME.config .config
-
-        # ---------- 4.2 关闭默认插件 ----------
-        for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
-                   SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
-                   SKIPDBV2 XTUN; do
+        
+        # B2. 禁用核心 VPN 相关
+        for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN; do
           sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
           echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
         done
-
-        PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE \
-                 ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 \
-                 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA \
-                 ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS"
+        
+        # B3. 禁用其余所有插件 (防止依赖拉起)
+        PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS"
         for p in $PLUGINS; do
           sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config || true
           echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
         done
-
+        
+        # B4. 禁用文件系统
         for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
           sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
           echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
         done
-
+        
+        # B5. 保留必要项
         echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
-
-        # ---------- 4.3 把 .config 同步进内核目录 ----------
+        
+        # -------------------------------------------------
+        # 2️⃣ 把配置同步到内核目录（在清理之前完成，以防 clear_tree 把它删掉）
+        # -------------------------------------------------
         cp .config linux-3.4.x/.config
-
-        # ---------- 4.4 清理上一次的构建 ----------
-        # 这里让 clear_tree 的错误不导致 CI 中断
-        set +e
-        sudo ./clear_tree || true
-        set -e
-
-        # ---------- 4.5 **关键**：重新编译内核工具并使用 olddefconfig ----------
+        
+        #########################################################################################
+        # 如需自定义其他配置，请在此处编辑 .config，例如：
+        #   sed -i '/自定义项/d' .config
+        #   echo "自定义项=y" >> .config
+        #########################################################################################
+        
+        # -------------------------------------------------
+        # 3️⃣ 关键修复：在执行 clear_tree 前，把内核 Kconfig 脚本的
+        #    '--silentoldconfig' 参数改成 '--olddefconfig'
+        #    这样任何后续的 make 调用都会自动使用默认值，不会再出现交互式提示
+        # -------------------------------------------------
+        sed -i 's/--silentoldconfig/--olddefconfig/g' linux-3.4.x/scripts/kconfig/Makefile
+        
+        # -------------------------------------------------
+        # 4️⃣ 清理旧的构建（此时已经完成了上面的替换）
+        # -------------------------------------------------
+        sudo ./clear_tree
+        
+        # -------------------------------------------------
+        # 5️⃣ 编译内核脚本工具（conf、fixdep 等），它们现在已经是
+        #    使用 --olddefconfig 的版本
+        # -------------------------------------------------
         cd linux-3.4.x
-
-        # 1) 编译内核构建脚本（这一步会把 scripts/kconfig/conf、fixdep 等重新生成）
-        make ARCH=mips \
-            CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
-            scripts  >/dev/null 2>&1
-
-        # 2) 把 silentoldconfig 参数改成 olddefconfig（只改参数，不改目标名）
-        sed -i 's/--silentoldconfig/--olddefconfig/g' scripts/kconfig/Makefile
-
-        # 3) 运行一次 olddefconfig，让 Kconfig 自动接受新选项
-        scripts/kconfig/conf --olddefconfig Kconfig
-
-        # 4) 确认 auto.conf 已生成（安全检查，可选）
-        if [ ! -f include/config/auto.conf ]; then
-          echo "Error: auto.conf was not generated!"
+        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- scripts
+        cd ..
+        
+        # -------------------------------------------------
+        # 6️⃣ 确认 auto.conf 已生成，若未生成直接报错退出
+        # -------------------------------------------------
+        if [ ! -f linux-3.4.x/include/config/auto.conf ]; then
+          echo "Error: auto.conf not generated after scripts build"
           exit 1
         fi
-        cd ..
-
-        # ---------- 4.6 正式编译固件 ----------
+        
+        # -------------------------------------------------
+        # 7️⃣ 正式编译固件
+        # -------------------------------------------------
         sudo ./build_firmware_modify $TNAME 0
         sudo mv -f images/*.trx /opt/images/
 
-    # ------------------------------------------------------------
-    # 5️⃣ 上传产物
-    # ------------------------------------------------------------
     - name: Upload packages
       uses: actions/upload-artifact@master
       if: always()
