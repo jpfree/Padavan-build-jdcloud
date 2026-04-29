@@ -1,22 +1,23 @@
 # ------------------------------------------------------------
 # Padavan 编译工作流（彻底剔除 OpenVPN、skipdbv2、xTun 等插件）
+# 修正点：fakeroot 拼写已确认为 fakeroot (无多余字符)
 # ------------------------------------------------------------
 name: Build Padavan dev
 
 on:
-  workflow_dispatch:                     # 手动点击 Run workflow
+  workflow_dispatch: # 手动点击 Run workflow
   release:
-    types: [published]                  # 发布 Release 时自动跑
+    types: [published]
   push:
     tags:
-      - 'v*'                             # 打 tag 时自动跑
+      - 'v*'
   watch:
     types: [started]
 
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 只允许仓库拥有者触发，防止他人滥用
+    # 只允许仓库所有者自己触发，防止他人滥用
     if: github.event.repository.owner.id == github.event.sender.id
 
     steps:
@@ -27,7 +28,8 @@ jobs:
         uses: actions/checkout@v4
 
       # ----------------------------------------------------
-      # 2️⃣ 安装编译所需依赖（纠正 fakerroot → fakerroot，加入 liblz4-dev）
+      # 2️⃣ 安装编译所需依赖
+      # 重点修正：fakeroot (正确拼写: f-a-k-e-r-o-o-t)
       # ----------------------------------------------------
       - name: Install build environment
         env:
@@ -46,7 +48,7 @@ jobs:
       # ----------------------------------------------------
       - name: Clone Padavan source
         env:
-          KERNEL: 3.4                # 如需 4.4 改成 4.4
+          KERNEL: 3.4 # 如需 4.4 改成 4.4
         run: |
           if [ "$KERNEL" = "4.4" ]; then
             git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
@@ -60,7 +62,7 @@ jobs:
 
       # ----------------------------------------------------
       # 4️⃣ 删除所有我们根本不想编译的插件目录
-      #    （避免 clear_tree/clean 进入不存在的 Makefile）
+      # (避免 clear_tree/clean 进入不存在的 Makefile)
       # ----------------------------------------------------
       - name: Remove unwanted plugin directories
         run: |
@@ -72,7 +74,7 @@ jobs:
       # ----------------------------------------------------
       - name: Prepare .config (disable VPN & all unwanted plugins)
         env:
-          TNAME: YK-L1                # 请按实际型号修改
+          TNAME: YK-L1 # 请按实际型号修改
           KERNEL: 3.4
         run: |
           set -e
@@ -87,9 +89,9 @@ jobs:
 
           # ② 禁用所有会把 OpenVPN 拉进来的选项
           for opt in \
-                OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
-                SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
-                SKIPDBV2 XTUN ; do
+            OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
+            SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
+            SKIPDBV2 XTUN ; do
             if grep -q "^CONFIG_FIRMWARE_INCLUDE_${opt}=" .config; then
               sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config
             else
@@ -99,10 +101,10 @@ jobs:
 
           # ③ 剔除其余所有我们不想要的插件（一次写成 =n，防止遗漏）
           PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE \
-                   ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 \
-                   FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW \
-                   ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO \
-                   IPERF3 MTR"
+            ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 \
+            FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW \
+            ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO \
+            IPERF3 MTR"
           for p in $PLUGINS; do
             if grep -q "^CONFIG_FIRMWARE_INCLUDE_${p}=" .config; then
               sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config
