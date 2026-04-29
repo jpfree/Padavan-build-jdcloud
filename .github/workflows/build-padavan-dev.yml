@@ -1,5 +1,4 @@
 name: Build Padavan dev
-
 on:
   workflow_dispatch:
   release:
@@ -13,8 +12,8 @@ jobs:
   build:
     runs-on: ubuntu-22.04
     if: github.event.repository.owner.id == github.event.sender.id
-
     steps:
+
       # ------------------------------------------------------------
       # 1️⃣ 检出代码
       # ------------------------------------------------------------
@@ -24,7 +23,7 @@ jobs:
       # ------------------------------------------------------------
       # 2️⃣ 安装全部编译依赖（已包括 liblz4-dev）
       # ------------------------------------------------------------
-      - name: Installation environment
+      - name: Installation
         env:
           DEBIAN_FRONTEND: noninteractive
         run: |
@@ -34,7 +33,7 @@ jobs:
             cpio git python3-docutils gettext automake autopoint texinfo \
             build-essential help2man pkg-config \
             zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
-            liblz4-dev   # ← 解决 lz4.h 缺失
+            liblz4-dev                     # ← 解决 lz4.h 缺失
 
       # ------------------------------------------------------------
       # 3️⃣ 下载 Padavan 源码并准备交叉编译链
@@ -94,53 +93,42 @@ jobs:
           # ---- 文件系统 / 基础库 ---------------------------------------------
           sed -i '/CONFIG_FIRMWARE_ENABLE_FAT/d' .config
           echo "CONFIG_FIRMWARE_ENABLE_FAT=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_ENABLE_EXT2/d' .config
           echo "CONFIG_FIRMWARE_ENABLE_EXT2=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_ENABLE_EXT3/d' .config
           echo "CONFIG_FIRMWARE_ENABLE_EXT3=n" >> .config
 
           # ---- 网络 / 防火墙 -------------------------------------------------
           sed -i '/CONFIG_FIRMWARE_INCLUDE_IPSET/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_IPSET=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSD/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_NFSD=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSC/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_NFSC=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_CIFS/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_CIFS=n" >> .config
 
           # ---- 打印 / 调试工具 -----------------------------------------------
           sed -i '/CONFIG_FIRMWARE_INCLUDE_LPRD/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_LPRD=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_TCPDUMP/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_TCPDUMP=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_HDPARM/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_HDPARM=n" >> .config
 
           # ---- Samba / FTP ---------------------------------------------------
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_SMBD=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD36/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_SMBD36=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_FTPD/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_FTPD=n" >> .config
 
           # ---- 认证 / 加密 ----------------------------------------------------
           sed -i '/CONFIG_FIRMWARE_INCLUDE_EAP_PEAP/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_EAP_PEAP=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_DDNS_SSL/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_DDNS_SSL=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC=n" >> .config
 
@@ -155,30 +143,24 @@ jobs:
           # ---- Aria2 -----------------------------------------------------------
           sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_ARIA=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL=n" >> .config
 
           # ---- 其他实用工具 ---------------------------------------------------
           sed -i '/CONFIG_FIRMWARE_INCLUDE_DOGCOM/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_DOGCOM=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_VLMCSD/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_VLMCSD=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_TTYD/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_TTYD=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_HTOP/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_HTOP=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_NANO/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_NANO=n" >> .config
 
           # ---- 网络测速 / 路由监控 --------------------------------------------
           sed -i '/CONFIG_FIRMWARE_INCLUDE_IPERF3/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_IPERF3=n" >> .config
-
           sed -i '/CONFIG_FIRMWARE_INCLUDE_MTR/d' .config
           echo "CONFIG_FIRMWARE_INCLUDE_MTR=n" >> .config
 
@@ -199,11 +181,14 @@ jobs:
             grep -E 'CONFIG_(PPP|PPTP|L2TP)' "$KERNEL_CFG" || echo "(none – all are n)"
           fi
 
-          # ⑥ 清理旧产物并正式编译（V=1 打印完整命令，便于后期定位）
+          # ⑥ 把 .config 同步到 Makefile（关键！必须！）
+          sudo make oldconfig
+
+          # ⑦ 清理旧产物并正式编译
           sudo ./clear_tree
           sudo make V=1 -j$(nproc)
 
-          # ⑦ 把固件搬到 /opt/images，后面的 upload‑artifact 能收集到
+          # ⑧ 把固件搬到 /opt/images，后面的 upload‑artifact 能收集到
           sudo mv -f images/*.trx /opt/images/
 
       # ------------------------------------------------------------
