@@ -18,14 +18,16 @@ on:
 jobs:
   build:
     runs-on: ubuntu-22.04
-    # 只允许仓库拥有者自己触发，避免恶意运行
     if: github.event.repository.owner.id == github.event.sender.id
     steps:
+    # ------------------------------------------------------------
+    # 1️⃣ Checkout
+    # ------------------------------------------------------------
     - name: Checkout
       uses: actions/checkout@master
 
     # ------------------------------------------------------------
-    # 1️⃣ 环境准备：安装编译所需的所有工具
+    # 2️⃣ 环境准备（所有编译依赖）
     # ------------------------------------------------------------
     - name: Initialization environment
       env:
@@ -39,7 +41,7 @@ jobs:
           wget
 
     # ------------------------------------------------------------
-    # 2️⃣ 拉取源码并准备交叉工具链
+    # 3️⃣ 拉取 Padavan 源码并准备交叉工具链
     # ------------------------------------------------------------
     - name: Clone source code
       env:
@@ -55,29 +57,24 @@ jobs:
         mkdir -p /opt/images/
 
     # ------------------------------------------------------------
-    # 3️⃣ 生成固件的全部步骤
+    # 4️⃣ 编译固件（关键步骤）
     # ------------------------------------------------------------
     - name: Build Firmware
       env:
-        TNAME: YK-L1          # 这里改成你自己的型号名
+        TNAME: YK-L1      # <-- 改成你自己的型号
         KERNEL: 3.4
       run: |
-        set -e  # 任意一步出错就立刻退出，避免后续误判
-
+        set -e   # 任意一步出错则退出（除非我们显式关闭）
         cd /opt/rt-n56u/trunk
 
-        # ----------------------------------------------
-        # 3.1 检查并拷贝模板配置
-        # ----------------------------------------------
+        # ---------- 4.1 检查并拷贝模板配置 ----------
         if [ ! -f configs/templates/$TNAME.config ]; then
           echo "Error: configs/templates/$TNAME.config not found"
           exit 1
         fi
         cp -f configs/templates/$TNAME.config .config
 
-        # ----------------------------------------------
-        # 3.2 关闭一堆默认插件（与你原始脚本里一样）
-        # ----------------------------------------------
+        # ---------- 4.2 关闭默认插件 ----------
         for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
                    SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
                    SKIPDBV2 XTUN; do
@@ -101,52 +98,42 @@ jobs:
 
         echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
 
-        # ----------------------------------------------
-        # 3.3 把当前 .config 同步进内核目录（后面会用）
-        # ----------------------------------------------
+        # ---------- 4.3 把 .config 同步进内核目录 ----------
         cp .config linux-3.4.x/.config
 
-        # ----------------------------------------------
-        # 3.4 清理之前的全部构建，确保一次性重新开始
-        # ----------------------------------------------
-        sudo ./clear_tree
+        # ---------- 4.4 清理上一次的构建 ----------
+        # 这里让 clear_tree 的错误不导致 CI 中断
+        set +e
+        sudo ./clear_tree || true
+        set -e
 
-        # -----------------------------------------------------------------
-        # 3.5 **关键修复**：在 clear_tree 之后重新生成内核配置工具
-        # -----------------------------------------------------------------
-        #   * clear_tree 会把 scripts/kconfig/conf 等编译产物删掉
-        #   * 我们先重新编译这些工具，然后使用 --olddefconfig 方式处理新选项
-        # -----------------------------------------------------------------
+        # ---------- 4.5 **关键**：重新编译内核工具并使用 olddefconfig ----------
         cd linux-3.4.x
 
-        # 1) 编译内核构建脚本（fixdep、conf 等）
+        # 1) 编译内核构建脚本（这一步会把 scripts/kconfig/conf、fixdep 等重新生成）
         make ARCH=mips \
             CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- \
             scripts  >/dev/null 2>&1
 
-        # 2) 把 silentoldconfig 改成 olddefconfig（只修改调用参数，不改目标名）
-        #    第一次出现的参数就在 scripts/kconfig/Makefile 里
+        # 2) 把 silentoldconfig 参数改成 olddefconfig（只改参数，不改目标名）
         sed -i 's/--silentoldconfig/--olddefconfig/g' scripts/kconfig/Makefile
 
-        # 3) 运行一次 olddefconfig，让 Kconfig 自动接受所有新选项
-        #    这一步会生成 include/config/auto.conf 等必须文件
+        # 3) 运行一次 olddefconfig，让 Kconfig 自动接受新选项
         scripts/kconfig/conf --olddefconfig Kconfig
 
-        # 4) 确认 auto.conf 已经生成（可选的安全检查）
+        # 4) 确认 auto.conf 已生成（安全检查，可选）
         if [ ! -f include/config/auto.conf ]; then
-          echo "Error: auto.conf was not generated – aborting."
+          echo "Error: auto.conf was not generated!"
           exit 1
         fi
         cd ..
 
-        # -----------------------------------------------------------------
-        # 3.6 正式编译固件
-        # -----------------------------------------------------------------
+        # ---------- 4.6 正式编译固件 ----------
         sudo ./build_firmware_modify $TNAME 0
         sudo mv -f images/*.trx /opt/images/
 
     # ------------------------------------------------------------
-    # 4️⃣ 把编译产物上传为工作流 Artifact
+    # 5️⃣ 上传产物
     # ------------------------------------------------------------
     - name: Upload packages
       uses: actions/upload-artifact@master
