@@ -83,26 +83,6 @@ jobs:
           # 这里会恢复所有的 Makefile 和目录结构
           sudo ./clear_tree || true
 
-      # 6. 【关键步骤】在 clear_tree 之后，make 之前，立即修改！
-      - name: Patch Makefile and Remove Dirs
-        run: |
-          cd /opt/rt-n56u/trunk
-          
-          # A. 物理删除目录 (防止 make 进入报错)
-          rm -rf user/openvpn user/skipdbv2 user/xTun user/smartdns user/redsocks
-          
-          # B. 暴力修改 user/Makefile (此时修改的是 clear_tree 恢复后的最终版本)
-          # 将 dir_y (编译) 改为 dir_n (不编译)
-          sed -i 's/^dir_y += openvpn/dir_n += openvpn/' user/Makefile
-          sed -i 's/^dir_y += skipdbv2/dir_n += skipdbv2/' user/Makefile
-          sed -i 's/^dir_y += xTun/dir_n += xTun/' user/Makefile
-          sed -i 's/^dir_y += smartdns/dir_n += smartdns/' user/Makefile
-          sed -i 's/^dir_y += redsocks/dir_n += redsocks/' user/Makefile
-          
-          # C. 再次确认 (双重保险)
-          grep "dir_n += openvpn" user/Makefile || echo "dir_n += openvpn" >> user/Makefile
-          grep "dir_n += skipdbv2" user/Makefile || echo "dir_n += skipdbv2" >> user/Makefile
-          grep "dir_n += xTun" user/Makefile || echo "dir_n += xTun" >> user/Makefile
 
       # 7. 正式编译
       - name: Build Firmware
