@@ -10,7 +10,8 @@ on:
   release:
     types: [published]
   push:
-    tags: - 'v*'
+    tags: 
+    - 'v*'
   watch:
     types: [started]
 
