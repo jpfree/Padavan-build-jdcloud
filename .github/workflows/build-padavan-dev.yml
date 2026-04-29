@@ -121,6 +121,100 @@ jobs:
         #格式如下：
         #sed -i '/自定义项/d' .config
         #echo "自定义项=y" >> .config
+        
+        sed -i '/CONFIG_FIRMWARE_ENABLE_FAT/d' .config
+        echo "CONFIG_FIRMWARE_ENABLE_FAT=n" >> .config
+
+        sed -i '/自定义项/d' .config
+        echo "自定义项=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_ENABLE_EXT2/d' .config
+        echo "CONFIG_FIRMWARE_ENABLE_EXT2=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_ENABLE_EXT3/d' .config
+        echo "CONFIG_FIRMWARE_ENABLE_EXT3=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_IPSET/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_IPSET=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSD/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_NFSD=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSC/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_NFSC=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_CIFS/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_CIFS=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_LPRD/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_LPRD=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_TCPDUMP/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_TCPDUMP=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_HDPARM/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_HDPARM=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_SMBD=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD36/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_SMBD36=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_FTPD/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_FTPD=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_EAP_PEAP/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_EAP_PEAP=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_DDNS_SSL/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_DDNS_SSL=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_XUPNPD/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_XUPNPD=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_FFMPEG_NEW/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_FFMPEG_NEW=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_ARIA=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_DOGCOM/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_DOGCOM=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_VLMCSD/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_VLMCSD=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_TTYD/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_TTYD=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_HTOP/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_HTOP=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_NANO/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_NANO=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_IPERF3/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_IPERF3=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_MTR/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_MTR=n" >> .config
+
+        sed -i '/CONFIG_FIRMWARE_INCLUDE_SRELAY/d' .config
+        echo "CONFIG_FIRMWARE_INCLUDE_SRELAY=n" >> .config
+
+        #sed -i '/自定义项/d' .config
+        #echo "自定义项=n" >> .config
+
+
+
+        
         #########################################################################################
         sudo ./clear_tree
         #sudo ./build_firmware_modify $TNAME 0
