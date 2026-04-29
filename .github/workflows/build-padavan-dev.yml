@@ -80,10 +80,7 @@ jobs:
         # B5. 保留必要项
         echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
         
-        # 【关键修复】在调用 clear_tree 之前，先复制一份配置模板
-        cp -f .config .config.backup
-        
-        # B6. 同步到内核 (先复制一份给内核)
+        # B6. 同步到内核 (预先放入内核目录)
         cp .config linux-3.4.x/.config
         
         #########################################################################################
@@ -96,23 +93,20 @@ jobs:
         # 清理之前的构建
         sudo ./clear_tree
         
-        # 【关键修复】清理后恢复配置，并处理内核新选项
-        cp -f .config.backup .config
-        cp .config linux-3.4.x/.config
+        # 【关键修复步骤】
+        # clear_tree 会清理掉 linux-3.4.x/.config 和生成的配置
+        # 我们需要重新复制配置并生成 auto.conf，防止后续 make linux 触发 silentoldconfig
+        cp -f .config linux-3.4.x/.config
         
-        # 进入内核目录，使用 olddefconfig 处理新选项（只运行一次，生成 auto.conf）
+        # 进入内核目录，运行 olddefconfig 生成所有必需文件 (包括 auto.conf)
+        # 使用 yes 命令自动回答所有提示为默认值 (虽然 olddefconfig 不应该有提示)
         cd linux-3.4.x
-        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- olddefconfig >/dev/null 2>&1
+        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- olddefconfig
         cd ..
         
-        # 修改主 Makefile，跳过 silentoldconfig 检查（如果存在调用）
-        # 方法：创建一个假的 auto.conf 如果不存在
-        if [ ! -f linux-3.4.x/include/config/auto.conf ]; then
-          mkdir -p linux-3.4.x/include/config
-          touch linux-3.4.x/include/config/auto.conf
-        fi
-        
-        # 开始编译（此时配置已完整，不会触发 silentoldconfig）
+        # 开始编译
+        # 此时 include/config/auto.conf 已存在，理论上不会再次触发 silentoldconfig
+        # 但如果 build_firmware_modify 内部的 make linux 依然触发，可能需要更深入的补丁
         sudo ./build_firmware_modify $TNAME 0
         sudo mv -f images/*.trx /opt/images/
 
