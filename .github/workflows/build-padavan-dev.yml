@@ -8,10 +8,6 @@ on:
   push:
     tags:
       - 'v*'
-  # branches:
-  #   - dev
-  # schedule:
-  #   - cron: 0 8 * * 5
   watch:
     types: [started]
 
@@ -28,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------
-      # 2️⃣ 安装全部编译依赖
+      # 2️⃣ 安装全部编译依赖（已包括 liblz4-dev）
       # ------------------------------------------------------------
       - name: Installation
         env:
@@ -36,7 +32,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install \
-            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
+            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakerroot \
             cpio git python3-docutils gettext automake autopoint texinfo \
             build-essential help2man pkg-config \
             zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
@@ -59,9 +55,9 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 4️⃣ 生成 .config 并强制关闭所有会把 OpenVPN 拉进来的选项
+      # 4️⃣ 生成 .config 并强制关闭所有不需要的组件（包括 OpenVPN 及其关联插件）
       # ------------------------------------------------------------
-      - name: Build Firmware (no-VPN)
+      - name: Build Firmware (no‑VPN)
         env:
           TNAME: YK-L1
           KERNEL: 3.4
@@ -76,93 +72,45 @@ jobs:
           fi
           cp -f configs/templates/$TNAME.config .config
 
-          # ② 把所有可能触发 openvpn 的选项写成 n
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENVPN=.*/CONFIG_FIRMWARE_INCLUDE_OPENVPN=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=.*/CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SSSERVER=.*/CONFIG_FIRMWARE_INCLUDE_SSSERVER=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_RPL2TP=.*/CONFIG_FIRMWARE_INCLUDE_RPL2TP=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CLIENT=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_SERVER=n/' .config
-          sed -i 's/^CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=.*/CONFIG_FIRMWARE_INCLUDE_SOFTETHERVPN_CMD=n/' .config
+          # ② 将所有可能拉进 OpenVPN 的选项全部设为 n
+          #    （包括我们之前在脚本里遗漏的插件，如 skipdbv2、xtun 等）
+          for opt in \
+            OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
+            SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
+            SKIPDBV2 XTUN ; do
+            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
+          done
 
-          # ③ 其它已经决定要删除的插件（统一用 sed 删除行 + 追加 =n）
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_MENTOHUST/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_MENTOHUST=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_SCUTCLIENT=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_DNSFORWARDER/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_DNSFORWARDER=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ADBYBY/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_ADBYBY=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FRPC/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_FRPC=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FRPS/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_FRPS=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_TUNSAFE/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_TUNSAFE=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ALIDDNS/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_ALIDDNS=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMARTDNS/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_SMARTDNS=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SRELAY/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_SRELAY=n" >> .config
+          # ③ 统一剔除其余所有我们不想要的插件（一次性写成 =n，防止遗漏）
+          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY \
+                   LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD \
+                   FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR"
+          for p in $PLUGINS; do
+            sed -i "/CONFIG_FIRMWARE_INCLUDE_${p}/d" .config
+            echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
+          done
 
-          # ---- 文件系统 / 基础库 ---------------------------------
-          sed -i '/CONFIG_FIRMWARE_ENABLE_FAT/d' .config && echo "CONFIG_FIRMWARE_ENABLE_FAT=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_ENABLE_EXT2/d' .config && echo "CONFIG_FIRMWARE_ENABLE_EXT2=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_ENABLE_EXT3/d' .config && echo "CONFIG_FIRMWARE_ENABLE_EXT3=n" >> .config
+          # 文件系统 / 网络 选项（同样写成 =n）
+          for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+            sed -i "/CONFIG_FIRMWARE_ENABLE_${opt}/d" .config
+            echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
+          done
 
-          # ---- 网络 / 防火墙 ---------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_IPSET/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_IPSET=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSD/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_NFSD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_NFSC/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_NFSC=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_CIFS/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_CIFS=n" >> .config
-
-          # ---- 打印 / 调试工具 ------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_LPRD/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_LPRD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_TCPDUMP/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_TCPDUMP=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_HDPARM/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_HDPARM=n" >> .config
-
-          # ---- Samba / FTP -----------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_SMBD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_SMBD36/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_SMBD36=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FTPD/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_FTPD=n" >> .config
-
-          # ---- 认证 / 加密 -----------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_EAP_PEAP/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_EAP_PEAP=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_DDNS_SSL/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_DDNS_SSL=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EC=n" >> .config
-
-          # ---- XUPnPd -----------------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_XUPNPD/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_XUPNPD=n" >> .config
-
-          # ---- 多媒体 -----------------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_FFMPEG_NEW/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_FFMPEG_NEW=n" >> .config
-
-          # ---- Aria2 -----------------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_ARIA=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_ARIA_WEB_CONTROL=n" >> .config
-
-          # ---- 其他实用工具 -----------------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_DOGCOM/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_DOGCOM=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_VLMCSD/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_VLMCSD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_TTYD/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_TTYD=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_HTOP/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_HTOP=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_NANO/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_NANO=n" >> .config
-
-          # ---- 网络测速 / 路由监控 ----------------------------------
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_IPERF3/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_IPERF3=n" >> .config
-          sed -i '/CONFIG_FIRMWARE_INCLUDE_MTR/d' .config && echo "CONFIG_FIRMWARE_INCLUDE_MTR=n" >> .config
-
-          # ④ 打开 SSL‑EXE（仍然需要）
+          # ④ 必要的 SSL‑EXE（必须保持打开）
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
 
-          # ⑤ 将 .config 复制到内核目录（解决内核编译报 "Configuration file .config not found"）
+          # ⑤ 将 .config 复制到内核目录（防止 “Configuration file .config not found”）
           cp .config linux-3.4.x/.config
 
-          # ⑥ 【绝招】强制在 user/Makefile 中剔除 openvpn（无论 .config 怎么设，openvpn 永远不编译）
-          sed -i '/^dir_n += openvpn/d' user/Makefile
-          echo 'dir_n += openvpn' >> user/Makefile
-
-          # ⑦ 清理旧产物并正式编译（不用 make oldconfig，Padavan 没有这个 target）
+          # ⑥ 清理旧产物并正式编译（不再对 user/Makefile 做任何手动修改）
           sudo ./clear_tree
           sudo make V=1 -j$(nproc)
 
-          # ⑧ 收集固件（编译完成后 mv，找不到文件时不报错，让 upload-artifact 兜底）
+          # ⑦ 编译结束后搬运固件（若仍未生成 .trx，则不报错，后续 upload‑artifact 会捕获错误）
           sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
 
       # ------------------------------------------------------------
-      # 5️⃣ 上传编译好的固件
+      # 5️⃣ 上传编译好的固件（若未找到 .trx 会直接报错）
       # ------------------------------------------------------------
       - name: Upload packages
         uses: actions/upload-artifact@v4
