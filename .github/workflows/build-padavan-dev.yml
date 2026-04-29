@@ -226,7 +226,8 @@ jobs:
         #########################################################################################
         sudo ./clear_tree
         #sudo ./build_firmware_modify $TNAME 0
-        sudo make oldconfig && make -j$(nproc)
+        #sudo make oldconfig && make -j$(nproc)
+        sudo make -j$(nproc)
         sudo mv -f images/*.trx /opt/images/
     - name : Upload packages
       uses: actions/upload-artifact@master
