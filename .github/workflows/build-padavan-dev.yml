@@ -1,17 +1,11 @@
-# ------------------------------------------------------------
-# Padavan 编译工作流 (绝对时序修正版)
-# 核心逻辑：
-# 1. 拉取源码 -> 2. 准备配置 -> 3. clear_tree (恢复现场) -> 4. 立即修改 Makefile 并删除目录 -> 5. 编译
-# 确保修改操作发生在 clear_tree 之后，make 之前！
-# ------------------------------------------------------------
 name: Build Padavan dev
 on:
   workflow_dispatch:
   release:
     types: [published]
   push:
-    tags: 
-    - 'v*'
+    tags:
+      - 'v*'
   watch:
     types: [started]
 
@@ -59,29 +53,38 @@ jobs:
         run: |
           set -e
           cd /opt/rt-n56u/trunk
-          cp -f configs/templates/$TNAME.config .config
           
+          # 复制模板
+          if [ ! -f configs/templates/$TNAME.config ]; then
+            echo "模板 configs/templates/$TNAME.config 未找到"
+            exit 1
+          fi
+          cp -f configs/templates/$TNAME.config .config
+
           # 禁用所有不需要的插件配置
-          for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+          PLUGINS="OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS FAT EXT2 EXT3 IPSET NFSD NFSC CIFS"
+          
+          for opt in $PLUGINS; do
             sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
             sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
             echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
             echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
           done
+          
           echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
           
           # 同步到内核
           cp .config linux-3.4.x/.config
 
       # 5. 清理旧产物 (让它恢复所有原始文件)
-      - name: Clear tree (Restore original state)
+      - name: Clear tree
         run: |
           cd /opt/rt-n56u/trunk
           # 这里会恢复所有的 Makefile 和目录结构
           sudo ./clear_tree || true
 
       # 6. 【关键步骤】在 clear_tree 之后，make 之前，立即修改！
-      - name: Patch Makefile and Remove Dirs (CRITICAL STEP)
+      - name: Patch Makefile and Remove Dirs
         run: |
           cd /opt/rt-n56u/trunk
           
