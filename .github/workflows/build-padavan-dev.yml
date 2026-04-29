@@ -51,6 +51,7 @@ jobs:
         KERNEL: 3.4
       run: |
         cd /opt/rt-n56u/trunk
+        
         if [ ! -f configs/templates/$TNAME.config ] ; then
           echo "configs/templates/$TNAME.config not found "
           exit 1
@@ -92,9 +93,11 @@ jobs:
         # 清理之前的构建
         sudo ./clear_tree
         
-        # 【修复】在清理后、编译前处理内核配置，避免 silentoldconfig 遇到新选项时报错
-        # 方法：修改内核 Makefile，将 silentoldconfig 改为 olddefconfig
+        # 【修复】在清理后，修改内核 Makefile，将 silentoldconfig 改为 olddefconfig
+        # 方法 1: 修改 scripts/kconfig/Makefile
         sed -i 's/--silentoldconfig/--olddefconfig/g' linux-3.4.x/scripts/kconfig/Makefile
+        # 方法 2: 同时修改 linux-3.4.x/Makefile 中调用的地方 (如果有)
+        sed -i 's/silentoldconfig/olddefconfig/g' linux-3.4.x/Makefile
         
         # 开始编译
         sudo ./build_firmware_modify $TNAME 0
