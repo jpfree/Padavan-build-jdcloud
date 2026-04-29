@@ -60,15 +60,7 @@ jobs:
           sh dl_toolchain.sh
           mkdir -p /opt/images/
 
-      # ----------------------------------------------------
-      # 4️⃣ 【关键步骤 1】在 clear_tree 之前先物理删除问题目录
-      # 这样 clear_tree 就不会尝试去 clean 这些没有 Makefile 的目录
-      # ----------------------------------------------------
-      - name: Remove problematic dirs BEFORE clear_tree
-        run: |
-          cd /opt/rt-n56u/trunk
-          # 物理删除目录，防止 clear_tree 报错
-          rm -rf user/openvpn user/skipdbv2 user/xTun user/smartdns user/redsocks
+
 
       # ----------------------------------------------------
       # 5️⃣ 【关键步骤 2】生成 .config 并彻底禁用所有不需要的插件
