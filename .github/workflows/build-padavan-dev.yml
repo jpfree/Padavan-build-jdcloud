@@ -78,7 +78,7 @@ jobs:
           echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
           
           # B6. 同步到内核
-          #cp .config linux-3.4.x/.config
+          cp .config linux-3.4.x/.config
 
 
         #########################################################################################
