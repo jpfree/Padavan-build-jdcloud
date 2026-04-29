@@ -97,16 +97,23 @@ jobs:
         # 1. 重新复制配置到内核目录
         cp -f .config linux-3.4.x/.config
         
-        # 2. 直接进入内核目录，使用 scripts/kconfig/conf 工具手动执行 olddefconfig
-        #    这避免了使用可能受污染的 'make olddefconfig' 目标
+        # 2. 进入内核目录
         cd linux-3.4.x
+        
+        # 3. 先编译内核构建工具 (scripts/kconfig/conf)，因为 clear_tree 可能清理了它们
+        # 这一步会编译 fixdep 和 conf 等工具
+        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- scripts
+        
+        # 4. 使用刚编译好的 tools 执行 olddefconfig，避开 silentoldconfig 交互
         scripts/kconfig/conf --olddefconfig Kconfig
+        
+        # 5. 返回上一级
         cd ..
         
-        # 3. 验证 auto.conf 是否生成 (可选，用于调试)
+        # 6. 验证 auto.conf 是否生成 (可选，用于调试)
         if [ ! -f linux-3.4.x/include/config/auto.conf ]; then
-            echo "Error: auto.conf was not generated!"
-            exit 1
+          echo "Error: auto.conf was not generated!"
+          exit 1
         fi
 
         # 开始编译
