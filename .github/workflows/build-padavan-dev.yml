@@ -124,10 +124,7 @@ jobs:
         
         sed -i '/CONFIG_FIRMWARE_ENABLE_FAT/d' .config
         echo "CONFIG_FIRMWARE_ENABLE_FAT=n" >> .config
-
-        sed -i '/自定义项/d' .config
-        echo "自定义项=n" >> .config
-
+        
         sed -i '/CONFIG_FIRMWARE_ENABLE_EXT2/d' .config
         echo "CONFIG_FIRMWARE_ENABLE_EXT2=n" >> .config
 
