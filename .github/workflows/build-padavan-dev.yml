@@ -1,67 +1,62 @@
-name: Build Padavan dev
-on:
-  workflow_dispatch:
+#修改TNAME: K2P 中的K2P为你需要编译的型号，注意名称要与configs/templates/目录下的名字相同
+name: Build  YK-L1 dev
+
+on: 
   release:
     types: [published]
   push:
     tags:
-      - 'v*'
+    - 'v*'
+  #  branches: 
+  #    - master
+#  schedule:
+#    - cron: 0 8 * * 5
   watch:
     types: [started]
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-22.04
     if: github.event.repository.owner.id == github.event.sender.id
+
     steps:
-      # 1. 检出代码
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      # 2. 安装依赖 (fakeroot 拼写已确认无误)
-      - name: Install build environment
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: |
-          sudo apt-get update
-          sudo apt-get -y install \
-            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
-            cpio git python3-docutils gettext automake autopoint texinfo \
-            build-essential help2man pkg-config \
-            zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
-            liblz4-dev
-
-      # 3. 拉取源码
-      - name: Clone Padavan source
-        env:
-          KERNEL: 3.4
-        run: |
-          if [ "$KERNEL" = "4.4" ]; then
-            git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
-          else
-            git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
-          fi
-          cd /opt/rt-n56u/toolchain-mipsel
-          sh dl_toolchain.sh
-          mkdir -p /opt/images/
-
-      # 4. 生成 .config (只处理配置，不动 Makefile)
-      - name: Prepare .config
-        env:
-          TNAME: YK-L1
-          KERNEL: 3.4
-        run: |
-          set -e
-          cd /opt/rt-n56u/trunk
-          
-          # 复制模板
-          if [ ! -f configs/templates/$TNAME.config ]; then
-            echo "模板 configs/templates/$TNAME.config 未找到"
-            exit 1
-          fi
-          cp -f configs/templates/$TNAME.config .config
-
-          # 禁用所有不需要的插件配置
+    - name: Checkout
+      uses: actions/checkout@master
+    - name: Initialization environment
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: |
+        sudo apt-get update
+        sudo apt-get -y install unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
+        cpio git python3-docutils gettext automake autopoint texinfo build-essential help2man \
+        pkg-config zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget
+    - name: Clone source code
+      env:
+        KERNEL: 3.4
+      run: |
+        if [ $KERNEL = "4.4" ] ; then
+        git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
+        else
+        git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
+        fi
+        cd /opt/rt-n56u/toolchain-mipsel
+        sh dl_toolchain.sh
+        mkdir -p /opt/images/
+    - name: Build Firmware
+      env:
+        TNAME: YK-L1
+        KERNEL: 3.4
+      run: |
+        cd /opt/rt-n56u/trunk
+        if [ ! -f configs/templates/$TNAME.config ] ; then
+        echo "configs/templates/$TNAME.config not found "
+        exit 1
+        fi
+        cp -f configs/templates/$TNAME.config .config
+        sed -i 's/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=n/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/g' .config
+        ################################################################################################
+        # 禁用所有不需要的插件配置
           PLUGINS="OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS FAT EXT2 EXT3 IPSET NFSD NFSC CIFS"
           
           for opt in $PLUGINS; do
@@ -72,34 +67,19 @@ jobs:
           done
           
           echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
-          
-          # 同步到内核
-          cp .config linux-3.4.x/.config
 
-      # 5. 清理旧产物 (让它恢复所有原始文件)
-      - name: Clear tree
-        run: |
-          cd /opt/rt-n56u/trunk
-          # 这里会恢复所有的 Makefile 和目录结构
-          sudo ./clear_tree || true
-
-
-      # 7. 正式编译
-      - name: Build Firmware
-        run: |
-          cd /opt/rt-n56u/trunk
-          # 此时 user/Makefile 已修改，目录已删除，应该不会再报错了
-          sudo make V=1 -j$(nproc)
-
-      # 8. 收集产物
-      - name: Collect firmware
-        run: |
-          sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
-
-      # 9. 上传
-      - name: Upload firmware
-        uses: actions/upload-artifact@v4
-        with:
-          name: Padavan-${{ env.TNAME }}-dev
-          path: /opt/images/*.trx
-          if-no-files-found: error
+        #########################################################################################
+        #自定义添加其它功能请参考源码configs/templates/目录下的config文件。按照上面的格式添加即可
+        #格式如下：
+        #sed -i '/自定义项/d' .config
+        #echo "自定义项=y" >> .config
+        #########################################################################################
+        sudo ./clear_tree
+        sudo ./build_firmware_modify $TNAME 0
+        sudo mv -f images/*.trx /opt/images/
+    - name : Upload packages
+      uses: actions/upload-artifact@master
+      if: always()
+      with:
+        name: Padavan-packages
+        path: /opt/images
