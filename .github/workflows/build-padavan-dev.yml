@@ -29,7 +29,7 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get -y install unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
-        cpio git python3-docutils gettext automake autopoint texinfo build-essential help2man \
+        cpio git python3-docutils gettext automatable autopoint texinfo build-essential help2man \
         pkg-config zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget
 
     - name: Clone source code
@@ -92,11 +92,9 @@ jobs:
         # 清理之前的构建
         sudo ./clear_tree
         
-        # 【修复】在编译前先处理内核配置，避免 silentoldconfig 遇到新选项时报错
-        # 方法：进入内核目录，使用 olddefconfig 自动设置新选项为默认值
-        cd linux-3.4.x
-        make ARCH=mips CROSS_COMPILE=/opt/rt-n56u/toolchain-mipsel/toolchain-3.4.x/bin/mipsel-linux-uclibc- olddefconfig
-        cd ..
+        # 【修复】在清理后、编译前处理内核配置，避免 silentoldconfig 遇到新选项时报错
+        # 方法：修改内核 Makefile，将 silentoldconfig 改为 olddefconfig
+        sed -i 's/--silentoldconfig/--olddefconfig/g' linux-3.4.x/scripts/kconfig/Makefile
         
         # 开始编译
         sudo ./build_firmware_modify $TNAME 0
