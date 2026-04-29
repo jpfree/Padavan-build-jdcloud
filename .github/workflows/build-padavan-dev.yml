@@ -24,7 +24,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ------------------------------------------------------------
-      # 2️⃣ 安装全部编译依赖（已包括 liblz4-dev）
+      # 2️⃣ 安装全部编译依赖（已改正 fakeroot 拼写，添加 liblz4-dev）
       # ------------------------------------------------------------
       - name: Installation
         env:
@@ -55,7 +55,7 @@ jobs:
           mkdir -p /opt/images/
 
       # ------------------------------------------------------------
-      # 4️⃣ 生成 .config 并强制关闭所有不需要的插件（包括 OpenVPN 及其关联组件）
+      # 4️⃣ 生成 .config 并一次性禁用所有会拉进 OpenVPN 的选项
       # ------------------------------------------------------------
       - name: Build Firmware (no‑VPN)
         env:
@@ -72,47 +72,57 @@ jobs:
           fi
           cp -f configs/templates/$TNAME.config .config
 
-          # ② 把所有可能拉进 OpenVPN 的选项全部设为 n
-          #    包括我们之前遗漏的 skipdbv2、xtun 等
+          # ② 一次性把所有 OpenVPN 相关选项写成 n
+          #    这一步会覆盖模板里原本为 y 的选项
           for opt in \
-            OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
-            SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
-            SKIPDBV2 XTUN ; do
-            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
+                OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
+                SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
+                SKIPDBV2 XTUN ; do
+            # 如果配置行不存在则直接追加，否则替换为 n
+            if grep -q "^CONFIG_FIRMWARE_INCLUDE_${opt}=" .config; then
+              sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config
+            else
+              echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
+            fi
           done
 
-          # ③ 统一剔除其余所有不需要的插件（一次性写成 =n，防止遗漏）
+          # ③ 统一剔除其余所有我们不想要的插件（一次性写成 =n）
           PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE \
                    ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 \
                    FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW \
-                   ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO \
-                   IPERF3 MTR"
+                   ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR"
           for p in $PLUGINS; do
-            sed -i "/CONFIG_FIRMWARE_INCLUDE_${p}/d" .config
-            echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
+            if grep -q "^CONFIG_FIRMWARE_INCLUDE_${p}=" .config; then
+              sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config
+            else
+              echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
+            fi
           done
 
-          # ---- 文件系统 / 基础库（全部置 n）----
+          # ---- 文件系统 / 基础库（全部写成 =n）----
           for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
-            sed -i "/CONFIG_FIRMWARE_ENABLE_${opt}/d" .config
-            echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
+            if grep -q "^CONFIG_FIRMWARE_ENABLE_${opt}=" .config; then
+              sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config
+            else
+              echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
+            fi
           done
 
-          # ---- 必须保留的 SSL‑EXE ----
+          # ④ 必须保留 SSL‑EXE（OpenSSL exe）——否则编译会报缺少 openssl‑exe
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
 
-          # ---- 将 .config 复制到内核目录，防止 “.config not found” ----
+          # ⑤ 复制 .config 到内核目录（防止 “Configuration file .config not found” 错误）
           cp .config linux-3.4.x/.config
 
-          # ---- 清理旧产物并正式编译（不再修改 user/Makefile）----
+          # ⑥ 清理旧产物并正式编译（不再对 user/Makefile 做任何手动修改）
           sudo ./clear_tree
           sudo make V=1 -j$(nproc)
 
-          # ---- 编译结束后搬运固件（若未生成 .trx 则不报错）----
+          # ⑦ 编译结束后搬运固件（若仍未生成 .trx 则不报错，后面的 upload‑artifact 会捕获错误）
           sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
 
       # ------------------------------------------------------------
-      # 5️⃣ 上传编译好的固件（若未找到 .trx 会直接报错）
+      # 5️⃣ 上传编译好的固件（如果没有产物会直接报错）
       # ------------------------------------------------------------
       - name: Upload packages
         uses: actions/upload-artifact@v4
