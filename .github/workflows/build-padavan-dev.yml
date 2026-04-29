@@ -1,12 +1,12 @@
 # ------------------------------------------------------------
-# GitHub Actions – Padavan 编译（彻底剔除 OpenVPN、skipdbv2、xtun 等插件）
+# Padavan 编译（彻底剔除 OpenVPN、skipdbv2、xtun 等插件）
 # ------------------------------------------------------------
 name: Build Padavan dev
 
 on:
-  workflow_dispatch:                     # 手动点击 Run workflow
+  workflow_dispatch:                     # 手动点 Run workflow
   release:
-    types: [published]                  # 发布 Release 时自动跑
+    types: [published]                  # Release 时自动跑
   push:
     tags:
       - 'v*'                             # 打 tag 时自动跑
@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ----------------------------------------------------
-      # 2️⃣ 安装编译所需依赖（已修正 fakeroot 拼写，加入 liblz4-dev）
+      # 2️⃣ 安装编译依赖（已把 fakerroot → fakeroot，加入 liblz4-dev）
       # ----------------------------------------------------
       - name: Install build environment
         env:
@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get -y install \
-            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakerroot \
+            unzip libtool-bin curl cmake gperf gawk flex bison nano xxd fakeroot \
             cpio git python3-docutils gettext automake autopoint texinfo \
             build-essential help2man pkg-config \
             zlib1g-dev libgmp3-dev libmpc-dev libmpfr-dev libncurses5-dev libltdl-dev wget \
@@ -46,37 +46,37 @@ jobs:
       # ----------------------------------------------------
       - name: Clone Padavan source
         env:
-          KERNEL: 3.4            # 如需 4.4 改成 4.4
+          KERNEL: 3.4                # 如需 4.4 改为 4.4
         run: |
           if [ "$KERNEL" = "4.4" ]; then
             git clone --depth=1 https://github.com/MeIsReallyBa/padavan-4.4.git /opt/rt-n56u
           else
             git clone --depth=1 https://github.com/jpfree/rt-n56u.git /opt/rt-n56u
           fi
-          # 下载并解压交叉工具链
+          # 下载交叉工具链
           cd /opt/rt-n56u/toolchain-mipsel
           sh dl_toolchain.sh
           mkdir -p /opt/images/
 
       # ----------------------------------------------------
-      # 4️⃣ 生成 .config 并一次性禁止所有不需要的插件
+      # 4️⃣ 生成 .config 并一次性禁用所有不需要的插件
       # ----------------------------------------------------
       - name: Prepare .config (disable VPN & all unwanted plugins)
         env:
-          TNAME: YK-L1            # 根据你实际要编译的型号修改
+          TNAME: YK-L1                # 根据实际型号修改
           KERNEL: 3.4
         run: |
           set -e
           cd /opt/rt-n56u/trunk
 
-          # ① 复制官方模板
+          # ① 复制模板
           if [ ! -f configs/templates/$TNAME.config ]; then
             echo "模板 configs/templates/$TNAME.config 未找到"
             exit 1
           fi
           cp -f configs/templates/$TNAME.config .config
 
-          # ② 统一把所有会把 OpenVPN 拉进来的选项全部设为 n
+          # ② 将所有会把 OpenVPN 拉进来的选项全部设为 n
           for opt in \
                 OPENVPN SHADOWSOCKS SSSERVER RPL2TP \
                 SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD \
@@ -115,17 +115,17 @@ jobs:
           sed -i 's/^CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=.*/CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y/' .config
 
           # --------------------------------------------------
-          # 把 .config 复制到内核目录（防止 “.config not found”）
+          # 把 .config 同步到内核目录（防止 “.config not found”）
           # --------------------------------------------------
           cp .config linux-3.4.x/.config
 
           # --------------------------------------------------
-          # 5️⃣ 清理旧产物（这里使用 “|| true” 忽略 libssl distclean 报错）
+          # 5️⃣ 清理旧产物（忽略 OpenSSL distclean 错误）
           # --------------------------------------------------
           sudo ./clear_tree || true
 
           # --------------------------------------------------
-          # 6️⃣ 再次剔除所有没有 Makefile 的插件（确保 openvpn、skipdbv2、xtun 被放入 dir_n）
+          # 6️⃣ 再次剔除所有没有 Makefile 的插件
           # --------------------------------------------------
           for d in openvpn skipdbv2 xtun; do
             sed -i "/^dir_y += $d/d" user/Makefile || true
@@ -141,17 +141,17 @@ jobs:
           done
 
           # --------------------------------------------------
-          # 7️⃣ 正式编译（不再对 user/Makefile 做任何手动修改）
+          # 7️⃣ 正式编译（不再对 user/Makefile 进行任何手动修改）
           # --------------------------------------------------
           sudo make V=1 -j$(nproc)
 
           # --------------------------------------------------
-          # 8️⃣ 把生成的 *.trx 固件搬到统一目录，供后面 artifact 收集
+          # 8️⃣ 把生成的 *.trx 固件搬到统一目录，供后面的 artifact 收集
           # --------------------------------------------------
           sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
 
       # ----------------------------------------------------
-      # 9️⃣ 上传编译产物（如果没有 .trx 会直接报错）
+      # 9️⃣ 上传编译产物（若未生成 .trx 会直接报错）
       # ----------------------------------------------------
       - name: Upload Padavan firmware
         uses: actions/upload-artifact@v4
