@@ -1,10 +1,8 @@
 # ------------------------------------------------------------
-# Padavan 编译工作流 (终极修正版)
-# 策略：
-# 1. fakeroot 拼写绝对正确 (f-a-k-e-r-o-o-t)
-# 2. 在 clear_tree 之前，物理删除目录 + 修改源码模板 Makefile
-# 3. 在 .config 中全量禁用所有插件
-# 4. clear_tree 后再次加固
+# Padavan 编译工作流 (绝对时序修正版)
+# 核心逻辑：
+# 1. 拉取源码 -> 2. 准备配置 -> 3. clear_tree (恢复现场) -> 4. 立即修改 Makefile 并删除目录 -> 5. 编译
+# 确保修改操作发生在 clear_tree 之后，make 之前！
 # ------------------------------------------------------------
 name: Build Padavan dev
 on:
@@ -12,8 +10,7 @@ on:
   release:
     types: [published]
   push:
-    tags:
-      - 'v*'
+    tags: - 'v*'
   watch:
     types: [started]
 
@@ -26,7 +23,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. 安装依赖 (再次确认：fakeroot)
+      # 2. 安装依赖 (fakeroot 拼写已确认无误)
       - name: Install build environment
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -53,98 +50,69 @@ jobs:
           sh dl_toolchain.sh
           mkdir -p /opt/images/
 
-      # 4. 【关键步骤 A】在 clear_tree 之前，物理删除目录 + 修改源码模板
-      # 这样 clear_tree 无论怎么恢复，都不会再有这些目录和引用
-      - name: Nuke problematic dirs and source templates BEFORE clear_tree
-        run: |
-          cd /opt/rt-n56u/trunk
-          
-          # A1. 物理删除目录 (防止 make clean 进入)
-          rm -rf user/openvpn user/skipdbv2 user/xTun user/smartdns user/redsocks
-          
-          # A2. 【核心】直接修改源码中的 user/Makefile 模板
-          # 找到所有包含 openvpn, skipdbv2, xTun 的 dir_y 行，强制改为 dir_n
-          # 这样即使后续 clear_tree 恢复了文件，编译时也会跳过
-          sed -i 's/^dir_y += openvpn/dir_n += openvpn/' user/Makefile
-          sed -i 's/^dir_y += skipdbv2/dir_n += skipdbv2/' user/Makefile
-          sed -i 's/^dir_y += xTun/dir_n += xTun/' user/Makefile
-          sed -i 's/^dir_y += smartdns/dir_n += smartdns/' user/Makefile
-          sed -i 's/^dir_y += redsocks/dir_n += redsocks/' user/Makefile
-
-      # 5. 【关键步骤 B】生成 .config 并全量禁用
-      - name: Prepare .config (Disable ALL)
+      # 4. 生成 .config (只处理配置，不动 Makefile)
+      - name: Prepare .config
         env:
           TNAME: YK-L1
           KERNEL: 3.4
         run: |
           set -e
           cd /opt/rt-n56u/trunk
-          
-          # B1. 复制模板
-          if [ ! -f configs/templates/$TNAME.config ]; then
-            echo "模板未找到"
-            exit 1
-          fi
           cp -f configs/templates/$TNAME.config .config
-
-          # B2. 禁用核心 VPN 相关
-          for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN; do
-            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
-            echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
-          done
           
-          # B3. 【补全】禁用其余所有插件 (防止依赖拉起)
-          PLUGINS="MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS"
-          for p in $PLUGINS; do
-            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${p}=.*/CONFIG_FIRMWARE_INCLUDE_${p}=n/" .config || true
-            echo "CONFIG_FIRMWARE_INCLUDE_${p}=n" >> .config
-          done
-
-          # B4. 禁用文件系统
-          for opt in FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+          # 禁用所有不需要的插件配置
+          for opt in OPENVPN SHADOWSOCKS SSSERVER RPL2TP SOFTETHERVPN_CLIENT SOFTETHERVPN_SERVER SOFTETHERVPN_CMD SKIPDBV2 XTUN MENTOHUST SCUTCLIENT DNSFORWARDER ADBYBY FRPC FRPS TUNSAFE ALIDDNS SMARTDNS SRELAY LPRD TCPDUMP HDPARM SMBD SMBD36 FTPD EAP_PEAP DDNS_SSL OPENSSL_EC XUPNPD FFMPEG_NEW ARIA ARIA_WEB_CONTROL DOGCOM VLMCSD TTYD HTOP NANO IPERF3 MTR REDSOCKS FAT EXT2 EXT3 IPSET NFSD NFSC CIFS; do
+            sed -i "s/^CONFIG_FIRMWARE_INCLUDE_${opt}=.*/CONFIG_FIRMWARE_INCLUDE_${opt}=n/" .config || true
             sed -i "s/^CONFIG_FIRMWARE_ENABLE_${opt}=.*/CONFIG_FIRMWARE_ENABLE_${opt}=n/" .config || true
+            echo "CONFIG_FIRMWARE_INCLUDE_${opt}=n" >> .config
             echo "CONFIG_FIRMWARE_ENABLE_${opt}=n" >> .config
           done
-          
-          # B5. 保留必要项
           echo "CONFIG_FIRMWARE_INCLUDE_OPENSSL_EXE=y" >> .config
           
-          # B6. 同步到内核
+          # 同步到内核
           cp .config linux-3.4.x/.config
 
-      # 6. 清理旧产物 (此时已安全)
-      - name: Clean old build artefacts
+      # 5. 清理旧产物 (让它恢复所有原始文件)
+      - name: Clear tree (Restore original state)
         run: |
           cd /opt/rt-n56u/trunk
-          # 因为之前已经删除了目录并修改了 Makefile，这里应该非常干净
+          # 这里会恢复所有的 Makefile 和目录结构
           sudo ./clear_tree || true
 
-      # 7. 【关键步骤 C】clear_tree 后再次加固 (防止模板恢复)
-      - name: Final Fix after clear_tree
+      # 6. 【关键步骤】在 clear_tree 之后，make 之前，立即修改！
+      - name: Patch Makefile and Remove Dirs (CRITICAL STEP)
         run: |
           cd /opt/rt-n56u/trunk
-          # 再次确保 user/Makefile 中没有 dir_y 引用
+          
+          # A. 物理删除目录 (防止 make 进入报错)
+          rm -rf user/openvpn user/skipdbv2 user/xTun user/smartdns user/redsocks
+          
+          # B. 暴力修改 user/Makefile (此时修改的是 clear_tree 恢复后的最终版本)
+          # 将 dir_y (编译) 改为 dir_n (不编译)
           sed -i 's/^dir_y += openvpn/dir_n += openvpn/' user/Makefile
           sed -i 's/^dir_y += skipdbv2/dir_n += skipdbv2/' user/Makefile
           sed -i 's/^dir_y += xTun/dir_n += xTun/' user/Makefile
           sed -i 's/^dir_y += smartdns/dir_n += smartdns/' user/Makefile
           sed -i 's/^dir_y += redsocks/dir_n += redsocks/' user/Makefile
           
-          # 再次确认目录不存在
-          rm -rf user/openvpn user/skipdbv2 user/xTun user/smartdns user/redsocks
+          # C. 再次确认 (双重保险)
+          grep "dir_n += openvpn" user/Makefile || echo "dir_n += openvpn" >> user/Makefile
+          grep "dir_n += skipdbv2" user/Makefile || echo "dir_n += skipdbv2" >> user/Makefile
+          grep "dir_n += xTun" user/Makefile || echo "dir_n += xTun" >> user/Makefile
 
-      # 8. 编译
+      # 7. 正式编译
       - name: Build Firmware
         run: |
           cd /opt/rt-n56u/trunk
+          # 此时 user/Makefile 已修改，目录已删除，应该不会再报错了
           sudo make V=1 -j$(nproc)
 
-      # 9. 收集产物
+      # 8. 收集产物
       - name: Collect firmware
         run: |
           sudo mv -f images/*.trx /opt/images/ 2>/dev/null || true
 
-      # 10. 上传
+      # 9. 上传
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
